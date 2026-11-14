@@ -1,14 +1,20 @@
-# Builds ClaudeUsage.exe and publishes it as a GitHub release when a version tag is pushed:
-#   git tag v1.0.9 && git push origin v1.0.9
-# The tag must match __version__ in claude_usage.pyw.
+# Builds ClaudeUsage.exe and publishes it as a GitHub release on every push to main
+# whose __version__ (in claude_usage.pyw) has no release yet. The tag v<version> is
+# created automatically. Pushes that don't bump __version__ are skipped.
+# To release: bump __version__, commit, push.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:  # run manually from the Actions tab
 
 permissions:
-  contents: write  # needed to create the release
+  contents: write  # needed to create the tag and release
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -16,30 +22,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt pyinstaller
-
-      - name: Check the tag matches __version__
-        shell: bash
-        run: |
-          ver=$(python -c "import build; print(build.read_version())")
-          if [ "v$ver" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME doesn't match __version__ = $ver in claude_usage.pyw"
-            exit 1
-          fi
-          echo "VER=$ver" >> "$GITHUB_ENV"
-
-      - name: Build the exe
-        run: python build.py
-
-      - name: Publish the release
+      - name: Read __version__ and skip if already released
+        id: ver
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "build/$VER/ClaudeUsage.exe" \
+          ver=$(sed -n 's/^__version__ *= *"\([0-9.]*\)".*/\1/p' claude_usage.pyw)
+          if [ -z "$ver" ]; then
+            echo "No __version__ found in claude_usage.pyw"
+            exit 1
+          fi
+          echo "VER=$ver" >> "$GITHUB_ENV"
+          if gh release view "v$ver" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "refs/tags/v$ver" >/dev/null; then
+            echo "v$ver already exists, nothing to release. Bump __version__ to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Releasing v$ver"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.ver.outputs.skip == 'false'
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.ver.outputs.skip == 'false'
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build the exe
+        if: steps.ver.outputs.skip == 'false'
+        run: python build.py
+
+      - name: Tag and publish the release
+        if: steps.ver.outputs.skip == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VER" "build/$VER/ClaudeUsage.exe" \
+            --target "$GITHUB_SHA" \
             --title "Claude Usage $VER" --generate-notes

@@ -98,12 +98,7 @@ python build.py
 
 The version comes from `__version__` at the top of `claude_usage.pyw`; bump it before building. The exe is written to `build/<version>/ClaudeUsage.exe`, with that version in its file properties and on the Settings page.
 
-**Releases:** pushing a version tag builds the exe on GitHub and publishes it as a release (see `.github/workflows/release.yml`). The tag must match `__version__`:
-
-```
-git tag v1.0.9
-git push origin v1.0.9
-```
+**Releases:** bump `__version__`, commit and push to `main`. GitHub then builds the exe, tags the commit `v<version>` and publishes it as a release (see `.github/workflows/release.yml`). Pushes that don't change `__version__` don't create a release.
 
 ## Privacy
 

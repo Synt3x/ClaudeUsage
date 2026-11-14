@@ -1,7 +1,8 @@
 # Claude Usage
 
 Windows tray app (`claude_usage.pyw`) that shows Claude plan usage. Built into an exe by `build.py`;
-`.github/workflows/release.yml` publishes a release when a `v*` tag is pushed.
+`.github/workflows/release.yml` tags `v<__version__>` and publishes a release on each push to `main`
+whose version has no release yet, so bump `__version__` to release.
 
 ## Secrets: never leak them
 
