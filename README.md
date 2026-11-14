@@ -25,7 +25,22 @@ It warns you before you run out (at 20%, 10% and 5% left) and tells you when a l
   </tr>
   <tr>
     <td valign="top"><img src="assets/screenshots/main.png" width="314" alt="Usage window"></td>
-    <td valign="top"><img src="assets/screenshots/settings.png" width="317" alt="Settings"></td>
+    <td valign="top"><img src="assets/screenshots/settings.png" width="314" alt="Settings, General tab"></td>
+  </tr>
+</table>
+
+The other settings tabs:
+
+<table>
+  <tr>
+    <td align="center"><b>Display</b></td>
+    <td align="center"><b>Alerts</b></td>
+    <td align="center"><b>Account</b></td>
+  </tr>
+  <tr>
+    <td valign="top"><img src="assets/screenshots/settings-display.png" width="250" alt="Settings, Display tab"></td>
+    <td valign="top"><img src="assets/screenshots/settings-alerts.png" width="250" alt="Settings, Alerts tab"></td>
+    <td valign="top"><img src="assets/screenshots/settings-account.png" width="250" alt="Settings, Account tab"></td>
   </tr>
 </table>
 
