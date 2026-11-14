@@ -14,6 +14,8 @@ It warns you before you run out (at 20%, 10% and 5% left) and tells you when a l
 
 > **Unofficial.** This project is not affiliated with, endorsed by, or supported by Anthropic. Claude is a trademark of Anthropic, PBC.
 
+> **Vibe coded.** This app was built mostly by prompting an AI coding assistant, then tested by hand.
+
 ## Screenshots
 
 <table>
