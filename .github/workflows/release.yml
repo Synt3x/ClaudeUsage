@@ -1,4 +1,4 @@
-# Builds ClaudeUsage.exe and publishes it as a GitHub release on every push to main
+# Builds ClaudeUsage-<version>.exe and publishes it as a GitHub release on every push to main
 # whose __version__ (in claude_usage.pyw) has no release yet. The tag v<version> is
 # created automatically. Pushes that don't bump __version__ are skipped.
 # To release: bump __version__, commit, push.
@@ -61,6 +61,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v$VER" "build/$VER/ClaudeUsage.exe" \
+          gh release create "v$VER" "build/$VER/ClaudeUsage-$VER.exe" \
             --target "$GITHUB_SHA" \
             --title "Claude Usage $VER" --generate-notes

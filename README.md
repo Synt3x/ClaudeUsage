@@ -74,7 +74,7 @@ Open them with the gear icon in the usage window, or right-click the widget → 
 
 ## Install
 
-Download `ClaudeUsage.exe` from the [latest release](../../releases/latest) and run it. There's nothing to install; turn on **Start with Windows** in Settings to have it start automatically.
+Download `ClaudeUsage-<version>.exe` from the [latest release](../../releases/latest) and run it. There's nothing to install; turn on **Start with Windows** in Settings to have it start automatically.
 
 The exe isn't code-signed, so Windows SmartScreen or Smart App Control may warn about it or block it the first time.
 
@@ -96,7 +96,7 @@ pip install --user pyinstaller
 python build.py
 ```
 
-The version comes from `__version__` at the top of `claude_usage.pyw`; bump it before building. The exe is written to `build/<version>/ClaudeUsage.exe`, with that version in its file properties and on the Settings page.
+The version comes from `__version__` at the top of `claude_usage.pyw`; bump it before building. The exe is written to `build/<version>/ClaudeUsage-<version>.exe`, with that version in its file properties and on the Settings page.
 
 **Releases:** bump `__version__`, commit and push to `main`. GitHub then builds the exe, tags the commit `v<version>` and publishes it as a release (see `.github/workflows/release.yml`). Pushes that don't change `__version__` don't create a release.
 

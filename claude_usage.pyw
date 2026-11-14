@@ -22,7 +22,7 @@ import pystray
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 APP_NAME = "ClaudeUsage"
-__version__ = "1.0.10"  # bump this before each build; build.py reads it
+__version__ = "1.0.11"  # bump this before each build; build.py reads it
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(os.environ.get("APPDATA", HERE), APP_NAME)
 SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
@@ -69,6 +69,8 @@ DEFAULTS = {
     "autostart": False,
     "check_updates": True,        # look for a newer release on GitHub at startup
     "show_taskbar_widget": True,
+    "show_credits": True,         # popup: credits, resets and the usage page link
+    "show_chart": True,           # popup: this week's graph
     "notify_20": True,
     "notify_10": True,
     "notify_5": True,
@@ -1131,15 +1133,22 @@ class App:
         link.pack(side="right")
         link.bind("<Button-1>", lambda e: webbrowser.open(USAGE_URL))
 
-        def line(label, value, value_fg=FG, sub="", sub_fg=MUTED):
+        def line(label, value, value_fg=FG, sub="", sub_fg=MUTED, url=None):
             f = tk.Frame(self.inner, bg=BG)
             f.pack(fill="x", pady=(0, self.px(6)))
             r = tk.Frame(f, bg=BG)
             r.pack(fill="x")
-            tk.Label(r, text=label, bg=BG, fg=FG2, font=(FONT, 9)).pack(side="left")
-            tk.Label(r, text=value, bg=BG, fg=value_fg, font=(FONT, 9, "bold")).pack(side="right")
+            ws = [f, r, tk.Label(r, text=label, bg=BG, fg=FG2, font=(FONT, 9)),
+                  tk.Label(r, text=value, bg=BG, fg=value_fg, font=(FONT, 9, "bold"))]
+            ws[2].pack(side="left")
+            ws[3].pack(side="right")
             if sub:
-                tk.Label(f, text=sub, bg=BG, fg=sub_fg, font=(FONT, 8)).pack(anchor="w")
+                ws.append(tk.Label(f, text=sub, bg=BG, fg=sub_fg, font=(FONT, 8)))
+                ws[-1].pack(anchor="w")
+            if url:  # whole row opens the page
+                for w in ws:
+                    w.configure(cursor="hand2")
+                    w.bind("<Button-1>", lambda e: webbrowser.open(url))
 
         def expiry(dt):
             if not dt:
@@ -1194,7 +1203,7 @@ class App:
                 value = f"{x['count']} available"
             else:
                 value = "Available"
-            line(x["name"], value, CLAY, *expiry(parse_time(x.get("expires"))))
+            line(x["name"], value, CLAY, *expiry(parse_time(x.get("expires"))), url=USAGE_URL)
 
     def history_chart(self):
         """This week's usage: one bar per day of the current weekly period (up to the weekly reset)."""
@@ -1272,8 +1281,10 @@ class App:
         if self.usage:
             for u in self.usage.values():
                 self.bar(u["label"], u["pct"], u["resets_at"], u.get("note", ""))
-            self.credits_section()
-            self.history_chart()
+            if self.settings["show_credits"]:
+                self.credits_section()
+            if self.settings["show_chart"]:
+                self.history_chart()
         if self.error:
             tk.Label(self.inner, text=self.error, bg=BG, fg=AMBER, font=(FONT, 8), wraplength=self.px(280),
                      justify="left").pack(anchor="w", pady=(self.px(8), 0))
@@ -1419,6 +1430,10 @@ class App:
         chips("tray_show", [("off", "Off"), ("five_hour", "5-hour"), ("seven_day", "Weekly")],
               labeled("Number in the tray icon"))
         chips("refresh_minutes", [(5, "5 min"), (10, "10 min"), (15, "15 min"), (30, "30 min")], labeled("Refresh every"))
+
+        section("Popup")
+        toggle("show_credits", "Show credits & resets", "With the link to the usage page on claude.ai")
+        toggle("show_chart", "Show this week's graph")
 
         section("Notifications")
         cf = labeled("Alert when this much is left")

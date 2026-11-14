@@ -1,9 +1,9 @@
-"""Build ClaudeUsage.exe with PyInstaller.
+"""Build ClaudeUsage-<version>.exe with PyInstaller.
 
     python build.py
 
 Reads __version__ from claude_usage.pyw and writes the exe to
-build/<version>/ClaudeUsage.exe (with that version in its file properties).
+build/<version>/ClaudeUsage-<version>.exe (with that version in its file properties).
 """
 import os
 import re
@@ -51,7 +51,7 @@ def write_version_file(path, version):
       StringStruct('ProductName', 'Claude Usage'),
       StringStruct('FileVersion', '{version}'),
       StringStruct('ProductVersion', '{version}'),
-      StringStruct('OriginalFilename', 'ClaudeUsage.exe')])]),
+      StringStruct('OriginalFilename', 'ClaudeUsage-{version}.exe')])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])
   ]
 )
@@ -69,12 +69,12 @@ def main():
     write_version_file(vfile, version)
 
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed",
-           "--name", "ClaudeUsage", "--icon", icon, "--version-file", vfile,
+           "--name", f"ClaudeUsage-{version}", "--icon", icon, "--version-file", vfile,
            "--distpath", out_dir, "--workpath", work, "--specpath", work, SRC]
     print("Building version", version)
     subprocess.run(cmd, check=True)
     shutil.rmtree(work, ignore_errors=True)
-    print("Done:", os.path.join(out_dir, "ClaudeUsage.exe"))
+    print("Done:", os.path.join(out_dir, f"ClaudeUsage-{version}.exe"))
 
 
 if __name__ == "__main__":
