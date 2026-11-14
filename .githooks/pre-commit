@@ -1,0 +1,57 @@
+#!/bin/sh
+# Blocks a commit if the staged changes contain a token, key or other credential.
+# Enabled per clone with:  git config core.hooksPath .githooks
+# Only newly added lines are checked. Found values are never printed, only where and what kind.
+
+# Credential files that must never be committed, whatever they contain
+BAD_FILES='(^|/)(\.credentials\.json|\.env(\..*)?|settings\.json|history\.json|login_result\.json|last_usage\.json|fetch_state\.json|notified\.json|id_(rsa|ed25519|ecdsa)|.*\.(pem|key|p12|pfx))$'
+
+# "kind|regex" pairs (extended regex, matched case-insensitively)
+PATTERNS='Anthropic API key or token|sk-ant-[a-z0-9_-]{10,}
+OpenAI-style API key|sk-(proj-)?[a-z0-9]{20,}
+GitHub token|(ghp|gho|ghu|ghs|ghr)_[a-z0-9]{30,}|github_pat_[a-z0-9_]{30,}
+AWS access key|(akia|asia)[a-z0-9]{16}
+Google API key|aiza[a-z0-9_-]{35}
+Slack token|xox[abprs]-[a-z0-9-]{10,}
+Private key|-----begin [a-z ]*private key-----
+JWT|ey[a-z0-9_-]{10,}\.ey[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}
+Bearer token|bearer [a-z0-9._~+/=-]{20,}
+OAuth token or session value in JSON|"(accesstoken|refreshtoken|access_token|refresh_token|sessionkey|session_key|id_token)"[[:space:]]*:[[:space:]]*"[^"]{8,}"
+Hardcoded secret|(api[_-]?key|secret|password|passwd|token|session[_-]?key|cookie)[a-z_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][a-z0-9_./+=:-]{16,}["'"'"']'
+
+# Public values that look like secrets but aren't
+ALLOW='9d1c250a-e61b-44d9-88ed-5944d1962f5e'  # Claude Code's public OAuth client id
+
+git diff --cached --name-only --diff-filter=ACMR | {
+    while IFS= read -r f; do
+        [ "$f" = ".githooks/pre-commit" ] && continue  # this file lists the patterns itself
+
+        if echo "$f" | grep -Eiq "$BAD_FILES"; then
+            echo "  $f: credential/local data file must not be committed"
+            continue
+        fi
+
+        added=$(git diff --cached -U0 --no-color -- "$f" | grep '^+' | grep -v '^+++' | grep -v "$ALLOW")
+        [ -z "$added" ] && continue
+
+        echo "$PATTERNS" | while IFS='|' read -r kind regex; do
+            [ -z "$kind" ] && continue
+            if echo "$added" | grep -Eiq -- "$regex"; then
+                echo "  $f: possible $kind"
+            fi
+        done
+    done
+} > "${TMPDIR:-/tmp}/precommit-secrets.$$"
+
+if [ -s "${TMPDIR:-/tmp}/precommit-secrets.$$" ]; then
+    echo ""
+    echo "COMMIT BLOCKED: possible credentials in the staged changes:"
+    cat "${TMPDIR:-/tmp}/precommit-secrets.$$"
+    echo ""
+    echo "Remove them (git restore --staged <file>, then edit) and commit again."
+    echo "Nothing was committed."
+    rm -f "${TMPDIR:-/tmp}/precommit-secrets.$$"
+    exit 1
+fi
+rm -f "${TMPDIR:-/tmp}/precommit-secrets.$$"
+exit 0
