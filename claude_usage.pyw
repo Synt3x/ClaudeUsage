@@ -22,7 +22,7 @@ import pystray
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 APP_NAME = "ClaudeUsage"
-__version__ = "1.0.11"  # bump this before each build; build.py reads it
+__version__ = "1.0.12"  # bump this before each build; build.py reads it
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(os.environ.get("APPDATA", HERE), APP_NAME)
 SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
@@ -1373,10 +1373,9 @@ class App:
         s = self.settings
         W = self.px(280)
 
-        def section(text, first=False):
-            if not first:
-                tk.Frame(self.inner, bg=TRACK, height=1, width=W).pack(fill="x", pady=(self.px(10), 0))
-            tk.Label(self.inner, text=text, bg=BG, fg=MUTED, font=(FONT, 8)).pack(anchor="w", pady=(self.px(8), self.px(4)))
+        def section(text):
+            tk.Label(self.inner, text=text.upper(), bg=BG, fg=MUTED, font=(FONT, 7, "bold")).pack(
+                anchor="w", pady=(self.px(8), self.px(2)))
 
         def row(title, desc=""):
             r = tk.Frame(self.inner, bg=BG)
@@ -1414,62 +1413,67 @@ class App:
                 clickable(parent, self.chip_img(text, s[key] == val), lambda v=val: self.set_setting(key, v),
                           side="left", padx=(0, self.px(4)))
 
-        section("General", first=True)
-        toggle("autostart", "Start with Windows")
-        toggle("check_updates", "Check for updates at startup", "Shows a banner when a new version is on GitHub")
-        toggle("show_taskbar_widget", "Show usage next to the clock")
-        if s["show_taskbar_widget"]:
-            cf = labeled("Show in the taskbar widget")
-            for key, text in (("widget_five", "5-hour"), ("widget_weekly", "Weekly"), ("widget_timer", "Time left")):
-                clickable(cf, self.chip_img(text, s[key]), lambda k=key: self.set_setting(k, not s[k]),
+        # One tab at a time keeps the page short.
+        tabs = [("general", "General"), ("display", "Display"), ("alerts", "Alerts"), ("account", "Account")]
+        tab = getattr(self, "settings_tab", "general")
+
+        def multi(parent, items):
+            for key, text in items:
+                clickable(parent, self.chip_img(text, s[key]), lambda k=key: self.set_setting(k, not s[k]),
                           side="left", padx=(0, self.px(4)))
-            cf = labeled("")
-            for key, text in (("widget_square", "Square"), ("widget_outline", "Outline")):
-                clickable(cf, self.chip_img(text, s[key]), lambda k=key: self.set_setting(k, not s[k]),
-                          side="left", padx=(0, self.px(4)))
-        chips("tray_show", [("off", "Off"), ("five_hour", "5-hour"), ("seven_day", "Weekly")],
-              labeled("Number in the tray icon"))
-        chips("refresh_minutes", [(5, "5 min"), (10, "10 min"), (15, "15 min"), (30, "30 min")], labeled("Refresh every"))
 
-        section("Popup")
-        toggle("show_credits", "Show credits & resets", "With the link to the usage page on claude.ai")
-        toggle("show_chart", "Show this week's graph")
+        if tab == "general":
+            section("Startup")
+            toggle("autostart", "Start with Windows")
+            toggle("check_updates", "Check for updates", "Banner when a new version is out")
+            chips("refresh_minutes", [(5, "5 min"), (10, "10 min"), (15, "15 min"), (30, "30 min")],
+                  labeled("Refresh every"))
 
-        section("Notifications")
-        cf = labeled("Alert when this much is left")
-        for t in (20, 10, 5):
-            key = f"notify_{t}"
-            clickable(cf, self.chip_img(f"{t}%", s[key]), lambda k=key: self.set_setting(k, not s[k]),
-                      side="left", padx=(0, self.px(4)))
-        toggle("notify_weekly", "Include weekly limits", "Weekly and per-model limits, like Fable")
-        cf = labeled("Alert when a limit resets")
-        types = ([(k, u["label"]) for k, u in self.usage.items()] if self.usage
-                 else [("five_hour", "5-hour session"), ("seven_day", "Weekly, all models")])
-        for key, label in types:
-            on = self.reset_enabled(key)
-            clickable(cf, self.chip_img(short_name(key, label), on),
-                      lambda k=key, o=on: self.set_reset_key(k, not o), side="left", padx=(0, self.px(4)))
+        elif tab == "display":
+            section("Taskbar")
+            toggle("show_taskbar_widget", "Usage next to the clock")
+            if s["show_taskbar_widget"]:
+                multi(labeled(""), (("widget_five", "5-hour"), ("widget_weekly", "Weekly"), ("widget_timer", "Time left")))
+                multi(labeled(""), (("widget_square", "Square"), ("widget_outline", "Outline")))
+            chips("tray_show", [("off", "Off"), ("five_hour", "5-hour"), ("seven_day", "Weekly")],
+                  labeled("Number in the tray icon"))
+            section("Popup")
+            toggle("show_credits", "Credits & resets", "With the link to the usage page")
+            toggle("show_chart", "This week's graph")
 
-        section("Data source")
-        chips("source", [("auto", "Auto"), ("claude_code", "Claude Code"), ("claude_ai", "claude.ai")], labeled(""))
-        toggle("allow_token_refresh", "Renew Claude Code login", "When it has expired")
-        r = row("claude.ai", "Logged in: resets and credits are shown" if s["session_key"]
-                else "Log in to see limit resets and your credit balance")
-        if getattr(self, "_login_proc", None):
-            tk.Label(r, text="Logging in…", bg=BG, fg=MUTED, font=(FONT, 9)).pack()
-        elif s["session_key"]:
-            clickable(r, self.chip_img("Log out", False), self.logout_claude_ai)
-        else:
-            clickable(r, self.chip_img("Log in", True), self.start_login)
-        tk.Label(self.inner, text="Or paste the session key", bg=BG, fg=FG2, font=(FONT, 8)).pack(anchor="w", pady=(self.px(6), self.px(4)))
-        box = tk.Frame(self.inner, bg=BG2, highlightthickness=1, highlightbackground=TRACK, highlightcolor=CLAY)
-        box.pack(fill="x")
-        e = tk.Entry(box, show="•", bg=BG2, fg=FG, insertbackground=FG, relief="flat", bd=0, font=(FONT, 9))
-        e.insert(0, s["session_key"])
-        e.pack(fill="x", padx=self.px(8), pady=self.px(5))
-        e.bind("<KeyRelease>", lambda ev: self.set_session_key(e.get()))
-        tk.Label(self.inner, text="The sessionKey cookie from claude.ai. Also used when Claude Code isn't available.",
-                 bg=BG, fg=MUTED, font=(FONT, 8), wraplength=W, justify="left").pack(anchor="w", pady=(self.px(3), 0))
+        elif tab == "alerts":
+            section("Notifications")
+            multi(labeled("When this much is left"), [(f"notify_{t}", f"{t}%") for t in (20, 10, 5)])
+            toggle("notify_weekly", "Include weekly limits", "Weekly and per-model limits, like Fable")
+            cf = labeled("When a limit resets")
+            types = ([(k, u["label"]) for k, u in self.usage.items()] if self.usage
+                     else [("five_hour", "5-hour session"), ("seven_day", "Weekly, all models")])
+            for key, label in types:
+                on = self.reset_enabled(key)
+                clickable(cf, self.chip_img(short_name(key, label), on),
+                          lambda k=key, o=on: self.set_reset_key(k, not o), side="left", padx=(0, self.px(4)))
+
+        else:  # account
+            section("Data source")
+            chips("source", [("auto", "Auto"), ("claude_code", "Claude Code"), ("claude_ai", "claude.ai")], labeled(""))
+            toggle("allow_token_refresh", "Renew Claude Code login", "When it has expired")
+            section("claude.ai")
+            r = row("Logged in" if s["session_key"] else "Not logged in",
+                    "Resets and credits are shown" if s["session_key"]
+                    else "Log in to see limit resets and credits")
+            if getattr(self, "_login_proc", None):
+                tk.Label(r, text="Logging in…", bg=BG, fg=MUTED, font=(FONT, 9)).pack()
+            elif s["session_key"]:
+                clickable(r, self.chip_img("Log out", False), self.logout_claude_ai)
+            else:
+                clickable(r, self.chip_img("Log in", True), self.start_login)
+                tk.Label(self.inner, text="Or paste the sessionKey cookie", bg=BG, fg=FG2,
+                         font=(FONT, 8)).pack(anchor="w", pady=(self.px(6), self.px(4)))
+                box = tk.Frame(self.inner, bg=BG2, highlightthickness=1, highlightbackground=TRACK, highlightcolor=CLAY)
+                box.pack(fill="x")
+                e = tk.Entry(box, show="•", bg=BG2, fg=FG, insertbackground=FG, relief="flat", bd=0, font=(FONT, 9))
+                e.pack(fill="x", padx=self.px(8), pady=self.px(5))
+                e.bind("<KeyRelease>", lambda ev: self.set_session_key(e.get()))
 
         tk.Frame(self.inner, bg=TRACK, height=1, width=W).pack(fill="x", pady=(self.px(12), self.px(8)))
         foot = tk.Frame(self.inner, bg=BG)
@@ -1477,14 +1481,26 @@ class App:
         q = tk.Label(foot, text="Quit Claude Usage", bg=BG, fg=MUTED, font=(FONT, 9), cursor="hand2")
         q.pack(side="left")
         tk.Label(foot, text=f"Version {__version__}", bg=BG, fg=MUTED, font=(FONT, 8)).pack(side="right")
-        tk.Label(self.inner, text="Unofficial app, not affiliated with or endorsed by Anthropic. "
-                                  "Claude is a trademark of Anthropic, PBC.",
-                 bg=BG, fg=MUTED, font=(FONT, 7), wraplength=W, justify="left").pack(anchor="w", pady=(self.px(8), 0))
+        if tab == "general":
+            tk.Label(self.inner, text="Unofficial app, not affiliated with or endorsed by Anthropic. "
+                                      "Claude is a trademark of Anthropic, PBC.",
+                     bg=BG, fg=MUTED, font=(FONT, 7), wraplength=W, justify="left").pack(anchor="w", pady=(self.px(8), 0))
         q.bind("<Button-1>", lambda ev: self.quit())
         q.bind("<Enter>", lambda ev: q.configure(fg=RED))
         q.bind("<Leave>", lambda ev: q.configure(fg=MUTED))
+        # Tabs last: the popup is anchored at the bottom, so they stay put when switching tabs.
+        tk.Frame(self.inner, bg=TRACK, height=1, width=W).pack(fill="x", pady=(self.px(10), self.px(8)))
+        bar = tk.Frame(self.inner, bg=BG)
+        bar.pack(fill="x")
+        for key, text in tabs:
+            clickable(bar, self.chip_img(text, tab == key), lambda k=key: self.show_settings_tab(k),
+                      side="left", padx=(0, self.px(4)))
         self.view = "settings"
         self.position_popup()
+
+    def show_settings_tab(self, tab):
+        self.settings_tab = tab
+        self.render_settings()
 
     def set_setting(self, key, value):
         s = self.settings
