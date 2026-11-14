@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import webbrowser
 import winreg
 from datetime import datetime, timedelta, timezone
 
@@ -21,7 +22,7 @@ import pystray
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 APP_NAME = "ClaudeUsage"
-__version__ = "1.0.9"  # bump this before each build; build.py reads it
+__version__ = "1.0.10"  # bump this before each build; build.py reads it
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(os.environ.get("APPDATA", HERE), APP_NAME)
 SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
@@ -36,6 +37,11 @@ OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 OAUTH_TOKEN_URLS = ["https://platform.claude.com/v1/oauth/token",
                     "https://console.anthropic.com/v1/oauth/token"]
 OAUTH_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+# Update check: public GitHub API, no login or token is sent.
+REPO = "Synt3x/ClaudeUsage"
+LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/latest"
+RELEASES_URL = f"https://github.com/{REPO}/releases/latest"
+USAGE_URL = "https://claude.ai/settings/usage"
 BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 
@@ -61,6 +67,7 @@ WINDOWS = [  # (api key, label, is_weekly)
 
 DEFAULTS = {
     "autostart": False,
+    "check_updates": True,        # look for a newer release on GitHub at startup
     "show_taskbar_widget": True,
     "notify_20": True,
     "notify_10": True,
@@ -553,6 +560,21 @@ def fetch_claude_ai(settings):
     return add_claude_ai_extras((parse_usage(j), "", parse_credits(j)), settings)
 
 
+def version_tuple(v):
+    """'v1.0.10' -> (1, 0, 10); non-numeric parts count as 0."""
+    return tuple(int(p) if p.isdigit() else 0 for p in v.strip().lstrip("vV").split("."))
+
+
+def latest_release_version():
+    """Version of the newest GitHub release, or None if it can't be found out."""
+    r = requests.get(LATEST_RELEASE_API, timeout=10, headers={
+        "Accept": "application/vnd.github+json", "User-Agent": f"{APP_NAME}/{__version__}"})
+    if r.status_code != 200:
+        return None
+    tag = r.json().get("tag_name") or ""
+    return tag.lstrip("vV") or None
+
+
 def fetch_demo(_settings):
     now = datetime.now(timezone.utc)
     m = (time.time() / 30) % 100
@@ -763,6 +785,7 @@ class App:
         self.fetching = False
         self.next_fetch = 0
         self.popup_opened_at = 0
+        self.new_version = None  # set when GitHub has a newer release
 
         self.root = tk.Tk()
         # Errors inside Tk callbacks don't stop the app; record them so problems can be traced.
@@ -797,6 +820,8 @@ class App:
         self.next_fetch = max(self.last_fetch + self.settings["refresh_minutes"] * 60, self.rate_until)
         if time.time() >= self.next_fetch:
             self.request_fetch()
+        if self.settings["check_updates"]:
+            self.check_for_update()
         if "--show" in sys.argv:
             self.root.after(1500, lambda: self.show_popup(settings="--settings" in sys.argv))
 
@@ -1099,7 +1124,12 @@ class App:
         c = self.credits
         if not c:
             return
-        tk.Label(self.inner, text="Credits", bg=BG, fg=FG2, font=(FONT, 9)).pack(anchor="w", pady=(self.px(2), self.px(4)))
+        head = tk.Frame(self.inner, bg=BG)
+        head.pack(fill="x", pady=(self.px(2), self.px(4)))
+        tk.Label(head, text="Credits", bg=BG, fg=FG2, font=(FONT, 9)).pack(side="left")
+        link = tk.Label(head, text="Open usage page  ↗", bg=BG, fg=CLAY, font=(FONT, 8), cursor="hand2")
+        link.pack(side="right")
+        link.bind("<Button-1>", lambda e: webbrowser.open(USAGE_URL))
 
         def line(label, value, value_fg=FG, sub="", sub_fg=MUTED):
             f = tk.Frame(self.inner, bg=BG)
@@ -1237,6 +1267,8 @@ class App:
         left = self.manual_refresh_wait()
         self.header("Claude usage", sub, [("", self.manual_refresh, bool(left)),
                                           ("", lambda: self.render_settings())])
+        if self.new_version:
+            self.update_banner()
         if self.usage:
             for u in self.usage.values():
                 self.bar(u["label"], u["pct"], u["resets_at"], u.get("note", ""))
@@ -1249,6 +1281,37 @@ class App:
             tk.Label(self.inner, text=f"Source: {self.source}", bg=BG, fg=MUTED, font=(FONT, 8)).pack(anchor="w", pady=(self.px(8), 0))
         self.view = "main"
         self.position_popup()
+
+    def update_banner(self):
+        """Clickable 'new version available' strip that opens the GitHub release page."""
+        box = tk.Frame(self.inner, bg=BG2, highlightthickness=1, highlightbackground=CLAY, cursor="hand2")
+        box.pack(fill="x", pady=(0, self.px(12)))
+        t = tk.Label(box, text=f"New version {self.new_version} available", bg=BG2, fg=FG,
+                     font=(FONT, 9, "bold"), cursor="hand2")
+        t.pack(side="left", padx=self.px(10), pady=self.px(6))
+        a = tk.Label(box, text="Press here  ↗", bg=BG2, fg=CLAY, font=(FONT, 9), cursor="hand2")
+        a.pack(side="right", padx=self.px(10))
+        for w in (box, t, a):
+            w.bind("<Button-1>", lambda e: webbrowser.open(RELEASES_URL))
+
+    def check_for_update(self):
+        if DEMO:
+            return
+
+        def work():
+            try:
+                latest = latest_release_version()
+            except Exception as e:
+                log(f"Update check failed: {type(e).__name__}")
+                return
+            if latest and version_tuple(latest) > version_tuple(__version__):
+                self.q.put(lambda: self.on_new_version(latest))
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_new_version(self, version):
+        self.new_version = version
+        if self.popup.winfo_viewable() and self.view == "main":
+            self.render_main()
 
     # ---------------- settings page (same look as the main page)
     def _img(self, key, make):
@@ -1342,6 +1405,7 @@ class App:
 
         section("General", first=True)
         toggle("autostart", "Start with Windows")
+        toggle("check_updates", "Check for updates at startup", "Shows a banner when a new version is on GitHub")
         toggle("show_taskbar_widget", "Show usage next to the clock")
         if s["show_taskbar_widget"]:
             cf = labeled("Show in the taskbar widget")
@@ -1421,6 +1485,8 @@ class App:
             self.place_widget()
         if key.startswith("widget_") or key == "tray_show":
             self.update_widget()
+        if key == "check_updates" and value and not old:
+            self.check_for_update()
         if key in ("source", "allow_token_refresh"):
             self.next_fetch = time.time() + 1
         self.render_settings()
