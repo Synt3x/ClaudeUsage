@@ -36,41 +36,49 @@ It warns you before you run out (at 20%, 10% and 5% left) and tells you when a l
 ## Features
 
 - **5-hour and weekly limits** with progress bars and reset times. Per-model weekly limits (for example Fable) appear automatically when your plan has them, and disappear when it doesn't.
-- **Credits:** your credit balance and when it expires, plus your monthly credit limit when usage credits are on.
-- **Resets & extras:** limit resets you can use, such as "Full reset · 1 available · Expires Wed 10 Dec 23:00".
+- **Credits:** your credit balance and when it expires, plus your monthly credit limit when usage credits are on. **Open usage page ↗** takes you to your usage page on claude.ai.
+- **Resets & extras:** limit resets you can use, such as "Full reset · 1 available · Expires Wed 10 Dec 23:00". Click one to open the usage page on claude.ai, where you can use it.
 - **This week:** daily peak of the 5-hour limit and how your weekly usage grew.
 - **Notifications:** before you run out, when a limit resets, and when something new to use shows up.
+- **Update check:** a banner in the usage window when a new version is out. Click it to open the release page.
 - **Light on the servers:** it asks for new numbers at most every 5 minutes, also across restarts.
 
 ## Settings
 
-Open them with the gear icon in the usage window, or right-click the widget → **Settings**. Changes save automatically.
+Open them with the gear icon in the usage window, or right-click the widget → **Settings**. The settings are split into four tabs (the tab bar is at the bottom). Changes save automatically.
 
 **General**
 
 | Setting | What it does |
 |---|---|
 | Start with Windows | Starts Claude Usage when you sign in to Windows. |
-| Show usage next to the clock | Shows or hides the widget in the taskbar. |
-| Show in the taskbar widget | **5-hour**, **Weekly**, **Time left** (until each resets), plus the colored **Square** and **Outline**. |
-| Number in the tray icon | **Off** (just the logo), **5-hour** or **Weekly**. |
+| Check for updates | Looks for a newer release on GitHub at startup and shows a banner when there is one. |
 | Refresh every | 5, 10, 15 or 30 minutes. |
 
-**Notifications**
+**Display**
 
 | Setting | What it does |
 |---|---|
-| Alert when this much is left | **20%**, **10%**, **5%**. Each alert comes once per limit, and again only after that limit resets. |
-| Include weekly limits | Also alert for weekly and per-model limits. |
-| Alert when a limit resets | One switch per limit type (5-hour, Weekly, and per-model ones like Fable), e.g. "Your weekly limit has reset". |
+| Usage next to the clock | Shows or hides the widget in the taskbar. When it's on, choose what it shows: **5-hour**, **Weekly**, **Time left** (until each resets), plus the colored **Square** and **Outline**. |
+| Number in the tray icon | **Off** (just the logo), **5-hour** or **Weekly**. |
+| Credits & resets | Shows or hides credits, limit resets and the usage page link in the usage window. |
+| This week's graph | Shows or hides the weekly chart in the usage window. |
 
-**Data source**
+**Alerts**
+
+| Setting | What it does |
+|---|---|
+| When this much is left | **20%**, **10%**, **5%**. Each alert comes once per limit, and again only after that limit resets. |
+| Include weekly limits | Also alert for weekly and per-model limits. |
+| When a limit resets | One switch per limit type (5-hour, Weekly, and per-model ones like Fable), e.g. "Your weekly limit has reset". |
+
+**Account**
 
 | Setting | What it does |
 |---|---|
 | Auto / Claude Code / claude.ai | Where usage is read from. **Auto** uses your Claude Code login and falls back to claude.ai. |
 | Renew Claude Code login | Renews the Claude Code login when it has expired, so the numbers keep updating. |
-| claude.ai: Log in | Opens claude.ai in a small window. After you sign in, credits and limit resets are shown too. **Log out** removes the login. You can also paste the `sessionKey` cookie yourself. |
+| claude.ai: Log in | Opens claude.ai in a small window. After you sign in, credits and limit resets are shown too. **Log out** removes the login. While logged out you can also paste the `sessionKey` cookie yourself. |
 
 ## Install
 
@@ -102,7 +110,7 @@ The version comes from `__version__` at the top of `claude_usage.pyw`; bump it b
 
 ## Privacy
 
-Everything stays on your PC. Settings, history and your claude.ai login (if you use it) are stored in `%APPDATA%\ClaudeUsage`. If you use your Claude Code login, the app reads `~/.claude/.credentials.json`; when it renews an expired login it writes the new one back to that file, after making a one-time backup (`.credentials.json.bak-claudeusage`).
+Everything stays on your PC. Settings, history and your claude.ai login (if you use it) are stored in `%APPDATA%\ClaudeUsage`. The update check only asks GitHub for the latest release number; it sends nothing about you or your account, and you can turn it off in Settings. If you use your Claude Code login, the app reads `~/.claude/.credentials.json`; when it renews an expired login it writes the new one back to that file, after making a one-time backup (`.credentials.json.bak-claudeusage`).
 
 ## License
 
