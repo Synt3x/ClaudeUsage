@@ -22,7 +22,7 @@ This app handles real login tokens. Treat everything below as hard rules.
 - Any `.env`, `*.pem`, `*.key`, `~/.ssh/`.
 
 **Rules:**
-- Never read the files above to debug. Use `python claude_usage.pyw --demo` or fake data instead.
+- Never read the files above to debug. Use `cargo run -- --demo` or fake data instead.
 - Never print, `log()` (`store::log`), or put tokens, cookies, `Authorization` headers or `sessionKey` values in an
   exception message. When logging an HTTP response, don't log request headers, and keep body logging
   to responses that can't contain credentials.
