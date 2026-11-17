@@ -13,9 +13,14 @@ use wry::{WebContext, WebViewBuilder};
 
 pub const LOGIN_TITLE: &str = "Log in to claude.ai";
 
-pub fn run() {
-    if let Err(e) = run_inner() {
-        log(&format!("Login window failed: {e}"));
+/// Runs the login window; returns false if it couldn't be opened.
+pub fn run() -> bool {
+    match run_inner() {
+        Ok(()) => true,
+        Err(e) => {
+            log(&format!("Login window failed: {e}"));
+            false
+        }
     }
 }
 

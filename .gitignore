@@ -1,6 +1,10 @@
 # Build output (cargo, and the versioned exe the release workflow copies)
 target/
 build/
+# Downloaded or copied binaries (the release exe, WebView2Loader.dll, debug symbols)
+*.exe
+*.dll
+*.pdb
 
 # Editors and OS files
 .vscode/
@@ -9,6 +13,7 @@ build/
 Thumbs.db
 desktop.ini
 .DS_Store
+.claude/settings.local.json
 
 # Local data and secrets: never commit these
 *.log
@@ -22,3 +27,7 @@ notified.json
 history.json
 login_result.json
 .credentials.json
+*.pem
+*.key
+*.p12
+*.pfx

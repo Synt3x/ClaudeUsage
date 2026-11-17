@@ -690,7 +690,14 @@ impl App {
         let (padx, pady) = (l.px(8.0), l.px(5.0));
         let th = self.fonts.linespace(r9) + 2.0;
         let h = 2.0 + 2.0 * pady + th;
-        let (x0, y0, w) = (l.x0, l.y, l.cw);
+        // "Paste" button at the right: right-click does nothing in this custom field.
+        let paste = chip_image(&self.fonts, self.scale, "Paste", false);
+        let (pw, ph) = (paste.width() as f32 + 2.0 * IMG, paste.height() as f32 + 2.0 * IMG);
+        let (x0, y0) = (l.x0, l.y);
+        let w = l.cw - pw - l.px(6.0);
+        let (bx, by) = (x0 + l.cw - pw, y0 + (h - ph) / 2.0);
+        l.pix(bx + IMG, by + IMG, paste);
+        l.hit(bx, by, bx + pw, by + ph, Action::Paste, None);
         l.ops.push(Op::Rect { x: x0, y: y0, w, h, c: if self.entry_focus { CLAY } else { TRACK } });
         l.ops.push(Op::Rect { x: x0 + 1.0, y: y0 + 1.0, w: w - 2.0, h: h - 2.0, c: BG2 });
         let room = w - 2.0 - 2.0 * padx - 2.0;

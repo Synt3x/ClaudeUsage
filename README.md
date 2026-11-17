@@ -94,7 +94,7 @@ Open them with the gear icon in the usage window, or right-click the widget → 
 |---|---|
 | Auto / Claude Code / claude.ai | Where usage is read from. **Auto** uses your Claude Code login and falls back to claude.ai. |
 | Renew Claude Code login | Renews the Claude Code login when it has expired, so the numbers keep updating. |
-| claude.ai: Log in | Opens claude.ai in a small window. After you sign in, credits and limit resets are shown too. **Log out** removes the login. While logged out you can also paste the `sessionKey` cookie yourself. |
+| claude.ai: Log in | Opens claude.ai in a small window. After you sign in, credits and limit resets are shown too. **Log out** removes the login. While logged out you can also paste the `sessionKey` cookie yourself with the **Paste** button. If the login window can't open, a notification says so. |
 
 ## Install
 

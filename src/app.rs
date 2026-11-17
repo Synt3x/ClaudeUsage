@@ -61,6 +61,7 @@ enum Action {
     Logout,
     Quit,
     Entry,
+    Paste,
 }
 
 enum Op {
@@ -984,6 +985,16 @@ impl App {
             Action::Login => self.start_login(),
             Action::Logout => self.logout_claude_ai(),
             Action::Quit => self.quit(),
+            Action::Paste => {
+                if let Some(t) = win::clipboard_text(self.popup) {
+                    // The whole field is replaced: a pasted key is the complete value.
+                    self.entry_text = t.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string();
+                    self.entry_open = true;
+                    let text = self.entry_text.clone();
+                    self.set_session_key(&text);
+                }
+                self.render_popup();
+            }
             Action::Entry => {
                 self.entry_open = true;
                 self.render_popup();
@@ -1060,6 +1071,7 @@ impl App {
             Ok(child) => self.login = Some(child),
             Err(e) => {
                 log(&format!("Couldn't open the login window: {e}"));
+                self.notify_login_failed();
                 return;
             }
         }
@@ -1068,9 +1080,11 @@ impl App {
 
     fn check_login(&mut self) {
         let Some(child) = self.login.as_mut() else { return };
-        if !matches!(child.try_wait(), Ok(Some(_)) | Err(_)) {
-            return;
-        }
+        let opened = match child.try_wait() {
+            Ok(None) => return, // still open
+            Ok(Some(status)) => status.success(),
+            Err(_) => false,
+        };
         self.login = None;
         let result = store::path("login_result.json");
         let key = store::load_json(&result).and_then(|v| v.get("key").and_then(|k| k.as_str()).map(|s| s.to_string())).unwrap_or_default();
@@ -1082,10 +1096,21 @@ impl App {
             self.next_fetch = now() + 1.0;
             self.notify("Logged in to claude.ai", "Limit resets and credits will show in Claude Usage.");
             log("Logged in to claude.ai");
+        } else if opened {
+            self.notify("Not logged in to claude.ai", "The login window was closed before you logged in. Try again on the Account tab.");
+        } else {
+            self.notify_login_failed();
         }
         if self.popup_visible() && self.view == View::Settings {
             self.render_popup();
         }
+    }
+
+    fn notify_login_failed(&mut self) {
+        self.notify(
+            "Couldn't open the login window",
+            "It needs Microsoft Edge WebView2. You can paste the sessionKey cookie on the Account tab instead.",
+        );
     }
 
     fn logout_claude_ai(&mut self) {

@@ -19,8 +19,11 @@ fn main() {
         std::process::exit(0);
     }
     if store::has_arg("--login") {
+        // Exit code 2 tells the main app the window couldn't be opened.
         #[cfg(feature = "login")]
-        login::run();
+        if !login::run() {
+            std::process::exit(2);
+        }
         return;
     }
     // Only one instance at a time (same mutex name as the Python version).
