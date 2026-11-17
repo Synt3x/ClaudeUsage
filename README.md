@@ -128,7 +128,7 @@ The claude.ai login window uses WebView2 (built into Windows 10 and 11). `cargo 
 
 ## Privacy
 
-Everything stays on your PC. Settings, history and your claude.ai login (if you use it) are stored in `%APPDATA%\ClaudeUsage`. The update check only asks GitHub for the latest release number; it sends nothing about you or your account, and you can turn it off in Settings. If you use your Claude Code login, the app reads `~/.claude/.credentials.json`; when it renews an expired login it writes the new one back to that file, after making a one-time backup (`.credentials.json.bak-claudeusage`).
+Everything stays on your PC. Settings, history and your claude.ai login (if you use it) are stored in `%APPDATA%\ClaudeUsage`. The claude.ai login is encrypted with Windows' own per-user encryption, so only your Windows account on this PC can read it. The update check only asks GitHub for the latest release number; it sends nothing about you or your account, and you can turn it off in Settings. If you use your Claude Code login, the app reads `~/.claude/.credentials.json`; when it renews an expired login it writes the new one back to that file, changing only the login fields and first saving a copy of the file as it was (`.credentials.json.bak-claudeusage`). If Claude Code has already renewed the login itself, the app uses that one instead of renewing again.
 
 ## License
 

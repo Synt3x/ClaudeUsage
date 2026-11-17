@@ -17,7 +17,7 @@ This app handles real login tokens. Treat everything below as hard rules.
 **Where secrets live (never open, print, copy or commit these):**
 - `~/.claude/.credentials.json` and its backup `~/.claude/.credentials.json.bak-claudeusage`:
   Claude Code's OAuth `accessToken` / `refreshToken`.
-- `%APPDATA%\Claude Usage\` (`settings.json`, `history.json`, login/session data): may hold
+- `%APPDATA%\ClaudeUsage\` (`settings.json`, `history.json`, login/session data): may hold
   claude.ai session cookies and account details.
 - Any `.env`, `*.pem`, `*.key`, `~/.ssh/`.
 

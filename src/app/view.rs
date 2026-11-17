@@ -619,25 +619,36 @@ impl App {
                 l.labeled("", c);
                 l.toggle("allow_token_refresh", s.b("allow_token_refresh"), "Renew Claude Code login", "When it has expired");
                 l.section("claude.ai");
-                let logged_in = !s.s("session_key").is_empty() && !self.entry_open;
-                let (title, desc) = if logged_in {
-                    ("Logged in", "Resets and credits are shown")
+                let logged_in = s.has_session_key() && !self.entry_open;
+                let status = usage::ai_status();
+                let expired = logged_in && status == usage::AiStatus::Expired;
+                let (title, desc): (&str, String) = if !logged_in {
+                    ("Not logged in", "Log in to see limit resets and credits".into())
+                } else if self.ai_checking {
+                    ("Checking…", "Checking your claude.ai login".into())
                 } else {
-                    ("Not logged in", "Log in to see limit resets and credits")
+                    match &status {
+                        usage::AiStatus::Expired => ("Session expired", "Log in again to see resets and credits".into()),
+                        usage::AiStatus::Error(e) => ("Logged in", format!("Couldn't reach claude.ai: {e}")),
+                        _ => ("Logged in", "Resets and credits are shown".into()),
+                    }
                 };
+                let desc = desc.as_str();
+                // An expired session offers "Log in" again instead of "Log out".
+                let show_login = !logged_in || expired;
                 let r9 = l.pt(9.0, Face::Reg);
                 if self.login.is_some() {
                     let t = "Logging in…";
                     let size = (l.lw(r9, t), l.lh(r9));
                     let (x, y) = l.row(title, desc, size);
                     l.text(x, y, t, r9, MUTED, None);
-                } else if logged_in || cfg!(feature = "login") {
-                    let pm = chip(if logged_in { "Log out" } else { "Log in" }, !logged_in);
+                } else if !show_login || cfg!(feature = "login") {
+                    let pm = chip(if show_login { "Log in" } else { "Log out" }, show_login);
                     let size = (pm.width() as f32 + 2.0 * IMG, pm.height() as f32 + 2.0 * IMG);
                     let (x, y) = l.row(title, desc, size);
                     l.pix(x + IMG, y + IMG, pm);
-                    l.hit(x, y, x + size.0, y + size.1, if logged_in { Action::Logout } else { Action::Login }, None);
-                    if !logged_in {
+                    l.hit(x, y, x + size.0, y + size.1, if show_login { Action::Login } else { Action::Logout }, None);
+                    if show_login {
                         let r8 = l.pt(8.0, Face::Reg);
                         let (a, b) = (l.px(6.0), l.px(4.0));
                         l.label("Or paste the sessionKey cookie", r8, FG2, (a, b));

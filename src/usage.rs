@@ -620,14 +620,28 @@ fn creds_path() -> PathBuf {
     home.join(".claude").join(".credentials.json")
 }
 
-/// Refresh Claude Code's expired login and write it back so Claude Code keeps working.
-fn refresh_claude_code_token(data: &mut Value) -> Result<String, FetchError> {
-    let path = creds_path();
-    let backup = PathBuf::from(format!("{}.bak-claudeusage", path.display()));
-    if !backup.exists() {
-        let _ = std::fs::copy(&path, &backup);
+/// Read Claude Code's credentials file; None when there's no Claude Code login.
+fn read_creds() -> Option<Value> {
+    store::load_json(&creds_path()).filter(|d| g(d, "claudeAiOauth").is_object())
+}
+
+fn token_of(data: &Value) -> (String, f64) {
+    let oauth = g(data, "claudeAiOauth");
+    (g(oauth, "accessToken").as_str().unwrap_or("").to_string(), g(oauth, "expiresAt").as_f64().unwrap_or(0.0))
+}
+
+/// Renew Claude Code's login and write it back so Claude Code keeps working.
+///
+/// `stale` is the access token that expired or was refused. If Claude Code has renewed it
+/// in the meantime (the file holds a different token that is still valid), that one is
+/// used: renewing again would replace the refresh token Claude Code just got.
+fn renew_claude_code_token(stale: &str) -> Result<String, FetchError> {
+    let Some(current) = read_creds() else { return err("No Claude Code login found on this PC") };
+    let (token, expires) = token_of(&current);
+    if !token.is_empty() && token != stale && expires / 1000.0 > now() + 60.0 {
+        return Ok(token);
     }
-    let refresh = g(g(data, "claudeAiOauth"), "refreshToken").as_str().unwrap_or("").to_string();
+    let refresh = g(g(&current, "claudeAiOauth"), "refreshToken").as_str().unwrap_or("").to_string();
     let a = agent(20);
     let mut last = String::new();
     for url in OAUTH_TOKEN_URLS {
@@ -639,47 +653,51 @@ fn refresh_claude_code_token(data: &mut Value) -> Result<String, FetchError> {
                 continue;
             }
         };
-        if r.ok() {
-            let j = r.json()?;
-            let Some(token) = g(&j, "access_token").as_str().map(|s| s.to_string()) else {
-                last = "no token in the answer".into();
-                continue;
-            };
-            let expires_in = g(&j, "expires_in").as_f64().unwrap_or(3600.0);
-            let oauth = data.get_mut("claudeAiOauth").and_then(|o| o.as_object_mut()).ok_or_else(|| {
-                FetchError::Msg("No Claude Code login found on this PC".into())
-            })?;
-            oauth.insert("accessToken".into(), json!(token));
-            if let Some(rt) = g(&j, "refresh_token").as_str().filter(|s| !s.is_empty()) {
-                oauth.insert("refreshToken".into(), json!(rt));
-            }
-            oauth.insert("expiresAt".into(), json!(((now() + expires_in) * 1000.0) as i64));
-            let tmp = PathBuf::from(format!("{}.tmp", path.display()));
-            let text = serde_json::to_string(data).unwrap_or_default();
-            if std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, &path)).is_err() {
-                log("Couldn't save the renewed Claude Code login");
-            }
-            return Ok(token);
+        if !r.ok() {
+            last = format!("HTTP {}", r.status);
+            continue;
         }
-        last = format!("HTTP {}", r.status);
+        let j = r.json()?;
+        let Some(token) = g(&j, "access_token").as_str().map(|s| s.to_string()) else {
+            last = "no token in the answer".into();
+            continue;
+        };
+        save_renewed_login(&current, &token, &j);
+        return Ok(token);
     }
     err(format!("Couldn't refresh the Claude Code login ({last}). Run claude and sign in again."))
 }
 
+/// Write the renewed login into Claude Code's file. The file is read again right before
+/// writing and only the login fields change, so nothing Claude Code saved meanwhile is lost.
+fn save_renewed_login(read_before: &Value, token: &str, answer: &Value) {
+    let path = creds_path();
+    let mut latest = read_creds().unwrap_or_else(|| read_before.clone());
+    // A copy of the file as it was before this write, replaced each time.
+    let _ = std::fs::copy(&path, PathBuf::from(format!("{}.bak-claudeusage", path.display())));
+    let Some(oauth) = latest.get_mut("claudeAiOauth").and_then(|o| o.as_object_mut()) else { return };
+    oauth.insert("accessToken".into(), json!(token));
+    if let Some(rt) = g(answer, "refresh_token").as_str().filter(|s| !s.is_empty()) {
+        oauth.insert("refreshToken".into(), json!(rt));
+    }
+    let expires_in = g(answer, "expires_in").as_f64().unwrap_or(3600.0);
+    oauth.insert("expiresAt".into(), json!(((now() + expires_in) * 1000.0) as i64));
+    let tmp = PathBuf::from(format!("{}.tmp", path.display()));
+    let text = serde_json::to_string(&latest).unwrap_or_default();
+    if std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, &path)).is_err() {
+        log("Couldn't save the renewed Claude Code login");
+    }
+}
+
 fn fetch_claude_code(settings: &Settings) -> Result<(Vec<Limit>, String, Option<Credits>), FetchError> {
-    let mut data = match store::load_json(&creds_path()) {
-        Some(d) if g(&d, "claudeAiOauth").is_object() => d,
-        _ => return err("No Claude Code login found on this PC"),
-    };
-    let oauth = g(&data, "claudeAiOauth").clone();
-    let mut token = g(&oauth, "accessToken").as_str().unwrap_or("").to_string();
-    let expires = g(&oauth, "expiresAt").as_f64().unwrap_or(0.0);
+    let Some(data) = read_creds() else { return err("No Claude Code login found on this PC") };
+    let (mut token, expires) = token_of(&data);
     let allow_refresh = settings.b("allow_token_refresh");
     if expires / 1000.0 < now() + 60.0 {
         if !allow_refresh {
             return err("Claude Code login expired. Open Claude Code to renew it.");
         }
-        token = refresh_claude_code_token(&mut data)?;
+        token = renew_claude_code_token(&token)?;
     }
     let a = agent(20);
     let get = |t: &str| {
@@ -689,8 +707,7 @@ fn fetch_claude_code(settings: &Settings) -> Result<(Vec<Limit>, String, Option<
     };
     let mut r = get(&token)?;
     if r.status == 401 && allow_refresh {
-        let mut fresh = store::load_json(&creds_path()).unwrap_or(data);
-        token = refresh_claude_code_token(&mut fresh)?;
+        token = renew_claude_code_token(&token)?;
         r = get(&token)?;
     }
     if r.status == 429 {
@@ -699,13 +716,37 @@ fn fetch_claude_code(settings: &Settings) -> Result<(Vec<Limit>, String, Option<
     if !r.ok() {
         return err(format!("Usage request failed (HTTP {})", r.status));
     }
-    let plan = capitalize(g(&oauth, "subscriptionType").as_str().unwrap_or(""));
+    let plan = capitalize(g(g(&data, "claudeAiOauth"), "subscriptionType").as_str().unwrap_or(""));
     let j = r.json()?;
     log_new_fields(&j);
     Ok((parse_usage(&j)?, plan, parse_credits(&j)))
 }
 
 // ----------------------------------------------------------------- claude.ai session
+
+/// What the last real claude.ai request said about the session key.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AiStatus {
+    /// Not asked yet since the app started (or since the key changed).
+    Unknown,
+    Ok,
+    /// claude.ai refused the key: wrong, or the session expired.
+    Expired,
+    /// claude.ai couldn't be reached or answered oddly; the message says why.
+    Error(String),
+}
+
+static AI_STATUS: Mutex<AiStatus> = Mutex::new(AiStatus::Unknown);
+
+pub fn ai_status() -> AiStatus {
+    AI_STATUS.lock().map(|s| s.clone()).unwrap_or(AiStatus::Unknown)
+}
+
+pub fn set_ai_status(s: AiStatus) {
+    if let Ok(mut g) = AI_STATUS.lock() {
+        *g = s;
+    }
+}
 
 struct AiSession {
     agent: ureq::Agent,
@@ -727,10 +768,22 @@ fn claude_ai_session(settings: &Settings) -> Result<AiSession, FetchError> {
         return err("No claude.ai session key set");
     }
     let mut s = AiSession { agent: agent(20), cookie: format!("sessionKey={key}"), org: String::new() };
-    let r = s.get("https://claude.ai/api/organizations")?;
+    let r = match s.get("https://claude.ai/api/organizations") {
+        Ok(r) => r,
+        Err(e) => {
+            set_ai_status(AiStatus::Error(e.to_string()));
+            return Err(e);
+        }
+    };
+    if r.status == 401 || r.status == 403 {
+        set_ai_status(AiStatus::Expired);
+        return err("claude.ai session expired or not valid. Log in again on the Account tab.");
+    }
     if !r.ok() {
+        set_ai_status(AiStatus::Error(format!("claude.ai answered HTTP {}", r.status)));
         return err(format!("claude.ai refused the session key (HTTP {})", r.status));
     }
+    set_ai_status(AiStatus::Ok);
     let orgs = r.json()?;
     let list = orgs.as_array().cloned().unwrap_or_default();
     if list.is_empty() {
@@ -896,6 +949,11 @@ fn add_claude_ai_extras(
             return (usage, plan, credits);
         }
     };
+    (usage, plan, Some(merge_ai(credits, d)))
+}
+
+/// Add claude.ai's resets and credit balance to the credits from the usage reading.
+pub fn merge_ai(credits: Option<Credits>, d: AiData) -> Credits {
     let mut c = credits.unwrap_or_default();
     let keys: HashSet<String> = c.extras.iter().map(|x| x.key.clone()).collect();
     c.extras.extend(d.extras.into_iter().filter(|x| !keys.contains(&x.key)));
@@ -903,7 +961,20 @@ fn add_claude_ai_extras(
         c.balance = d.balance;
         c.balance_expires = d.balance_expires.as_deref().and_then(parse_time_str);
     }
-    (usage, plan, Some(c))
+    c
+}
+
+/// Check a new session key right away and get its resets and credits (claude.ai only;
+/// the usage endpoint keeps its own 5-minute limit).
+pub fn check_ai_now(settings: &Settings) -> Option<AiData> {
+    reset_ai_cache_time();
+    match claude_ai_extras(settings) {
+        Ok(d) => d,
+        Err(e) => {
+            log(&format!("claude.ai check failed: {e}"));
+            None
+        }
+    }
 }
 
 fn fetch_claude_ai(settings: &Settings) -> Result<(Vec<Limit>, String, Option<Credits>), FetchError> {

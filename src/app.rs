@@ -32,6 +32,7 @@ const T_TOP: usize = 2;
 const T_CLICK: usize = 3;
 const T_SHOW: usize = 4;
 const T_UNLOCK: usize = 5;
+const T_KEYCHECK: usize = 6;
 
 const ICON_REFRESH: char = '\u{E72C}';
 const ICON_SETTINGS: char = '\u{E713}';
@@ -45,6 +46,8 @@ const IMG: f32 = 1.0;
 enum Msg {
     Result(Result<Box<Reading>, FetchError>),
     NewVersion(String),
+    /// Result of checking a new claude.ai key (its resets and credits, if it works).
+    AiChecked(Option<usage::AiData>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -259,6 +262,8 @@ pub struct App {
     entry_focus: bool,
     entry_text: String,
     entry_open: bool,
+    /// A new claude.ai key is being checked.
+    ai_checking: bool,
     last_minute: i64,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
@@ -477,6 +482,7 @@ impl App {
             entry_focus: false,
             entry_text: String::new(),
             entry_open: false,
+            ai_checking: false,
             last_minute: 0,
             tx,
             rx,
@@ -549,6 +555,10 @@ impl App {
                             let v = if store::has_arg("--settings") { View::Settings } else { View::Main };
                             self.show_popup(v);
                         }
+                        T_KEYCHECK => {
+                            unsafe { KillTimer(self.root, T_KEYCHECK) };
+                            self.check_key_now();
+                        }
                         T_UNLOCK => {
                             unsafe { KillTimer(self.root, T_UNLOCK) };
                             if self.popup_visible() && self.view == View::Main {
@@ -563,6 +573,19 @@ impl App {
                     while let Ok(m) = self.rx.try_recv() {
                         match m {
                             Msg::Result(r) => self.on_result(r.map(|b| *b)),
+                            Msg::AiChecked(d) => {
+                                self.ai_checking = false;
+                                // Show the result instead of the field.
+                                self.entry_open = false;
+                                self.entry_focus = false;
+                                self.entry_text.clear();
+                                if let Some(d) = d {
+                                    self.credits = Some(usage::merge_ai(self.credits.take(), d));
+                                }
+                                if self.popup_visible() {
+                                    self.render_popup();
+                                }
+                            }
                             Msg::NewVersion(v) => {
                                 self.new_version = Some(v);
                                 if self.popup_visible() && self.view == View::Main {
@@ -988,10 +1011,15 @@ impl App {
             Action::Paste => {
                 if let Some(t) = win::clipboard_text(self.popup) {
                     // The whole field is replaced: a pasted key is the complete value.
-                    self.entry_text = t.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string();
-                    self.entry_open = true;
-                    let text = self.entry_text.clone();
-                    self.set_session_key(&text);
+                    let key = t.chars().filter(|c| !c.is_control()).collect::<String>();
+                    if !key.trim().is_empty() {
+                        // A pasted key is complete: check it now and show the result.
+                        self.entry_text.clear();
+                        self.entry_open = false;
+                        self.entry_focus = false;
+                        self.store_session_key(&key);
+                        self.check_key_now();
+                    }
                 }
                 self.render_popup();
             }
@@ -1087,13 +1115,14 @@ impl App {
         };
         self.login = None;
         let result = store::path("login_result.json");
-        let key = store::load_json(&result).and_then(|v| v.get("key").and_then(|k| k.as_str()).map(|s| s.to_string())).unwrap_or_default();
+        // The login window hands the key over encrypted.
+        let key = store::load_json(&result)
+            .and_then(|v| v.get("key_enc").and_then(|k| k.as_str()).and_then(crate::secret::unprotect))
+            .unwrap_or_default();
         let _ = std::fs::remove_file(&result);
         if !key.is_empty() {
-            self.settings.set("session_key", json!(key));
-            self.settings.save();
-            usage::reset_ai_cache_time(); // ask claude.ai on the next refresh (at most 5 minutes away)
-            self.next_fetch = now() + 1.0;
+            self.store_session_key(&key);
+            self.check_key_now();
             self.notify("Logged in to claude.ai", "Limit resets and credits will show in Claude Usage.");
             log("Logged in to claude.ai");
         } else if opened {
@@ -1109,13 +1138,14 @@ impl App {
     fn notify_login_failed(&mut self) {
         self.notify(
             "Couldn't open the login window",
-            "It needs Microsoft Edge WebView2. You can paste the sessionKey cookie on the Account tab instead.",
+            "Microsoft Edge WebView2 may be missing. You can paste the sessionKey cookie on the Account tab instead.",
         );
     }
 
     fn logout_claude_ai(&mut self) {
-        self.settings.set("session_key", json!(""));
+        self.settings.set_session_key("");
         self.settings.save();
+        usage::set_ai_status(usage::AiStatus::Unknown);
         usage::set_ai_cache(0.0, None);
         store::save_fetch_state(&[("ai_t", json!(0)), ("ai_data", Value::Null)]);
         if let Some(c) = self.credits.as_mut() {
@@ -1124,10 +1154,32 @@ impl App {
         self.render_popup();
     }
 
-    fn set_session_key(&mut self, value: &str) {
-        self.settings.set("session_key", json!(value.trim()));
+    /// Save a new key (encrypted) and forget what the old one said.
+    fn store_session_key(&mut self, value: &str) {
+        self.settings.set_session_key(value);
         self.settings.save();
-        self.next_fetch = now() + 2.0; // wait until typing stops
+        usage::set_ai_status(usage::AiStatus::Unknown);
+        self.next_fetch = now() + 2.0; // the usage reading itself keeps its 5-minute limit
+    }
+
+    /// A key typed or pasted in the field: check it once typing stops.
+    fn set_session_key(&mut self, value: &str) {
+        self.store_session_key(value);
+        unsafe { SetTimer(self.root, T_KEYCHECK, 1500, None) };
+    }
+
+    /// Ask claude.ai whether the key works and get its resets and credits right away.
+    fn check_key_now(&mut self) {
+        if !self.settings.has_session_key() || self.ai_checking {
+            return;
+        }
+        self.ai_checking = true;
+        let settings = self.settings.clone();
+        let post = self.post();
+        std::thread::spawn(move || post(Msg::AiChecked(usage::check_ai_now(&settings))));
+        if self.popup_visible() {
+            self.render_popup();
+        }
     }
 
     // ---------------- loop

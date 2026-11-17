@@ -9,6 +9,7 @@ mod draw;
 #[cfg(feature = "login")]
 mod login;
 mod logo;
+mod secret;
 mod store;
 mod usage;
 mod win;

@@ -179,7 +179,7 @@ fn defaults() -> Map<String, Value> {
         "refresh_minutes": 5,
         "source": "auto",             // auto | claude_code | claude_ai
         "allow_token_refresh": true,  // refresh Claude Code's login when it has expired
-        "session_key": "",            // claude.ai sessionKey cookie
+        "session_key_enc": "",        // claude.ai sessionKey cookie, encrypted (see secret.rs)
         "widget_square": true,        // small colored square in the taskbar widget
         "widget_outline": true,       // rounded outline around the taskbar widget
         "widget_timer": true,         // reset countdown in the taskbar widget
@@ -208,6 +208,12 @@ impl Settings {
         let mut st = Settings(s);
         let mins = st.i("refresh_minutes").max((MIN_FETCH_GAP / 60.0) as i64);
         st.0.insert("refresh_minutes".into(), json!(mins));
+        // Older versions kept the key in plain text: encrypt it once.
+        let plain = st.s("session_key");
+        if !plain.trim().is_empty() {
+            st.set_session_key(&plain);
+            st.save();
+        }
         st
     }
 
@@ -237,8 +243,34 @@ impl Settings {
         self.0.insert(k.to_string(), v);
     }
 
+    /// The claude.ai session key ("" when not logged in).
     pub fn session_key(&self) -> String {
-        self.s("session_key").trim().to_string()
+        let enc = self.s("session_key_enc");
+        if !enc.is_empty() {
+            return crate::secret::unprotect(&enc).unwrap_or_default();
+        }
+        self.s("session_key").trim().to_string() // not encrypted (encryption failed)
+    }
+
+    pub fn has_session_key(&self) -> bool {
+        !self.s("session_key_enc").is_empty() || !self.s("session_key").trim().is_empty()
+    }
+
+    /// Store the key encrypted; "" logs out. Call save() afterwards.
+    pub fn set_session_key(&mut self, key: &str) {
+        let key = key.trim();
+        self.0.remove("session_key");
+        self.set("session_key_enc", json!(""));
+        if key.is_empty() {
+            return;
+        }
+        match crate::secret::protect(key) {
+            Some(enc) => self.set("session_key_enc", json!(enc)),
+            None => {
+                log("Couldn't encrypt the claude.ai key; keeping it unencrypted");
+                self.set("session_key", json!(key));
+            }
+        }
     }
 }
 

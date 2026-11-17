@@ -54,7 +54,10 @@ fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let Ok(cookies) = webview.cookies_for_url("https://claude.ai") else { return };
                 if let Some(c) = cookies.iter().find(|c| c.name() == "sessionKey" && c.value().starts_with("sk-ant-")) {
-                    store::save_json(&store::path("login_result.json"), &serde_json::json!({"key": c.value()}));
+                    // Encrypted, like in settings.json; the main app decrypts it.
+                    if let Some(enc) = crate::secret::protect(c.value()) {
+                        store::save_json(&store::path("login_result.json"), &serde_json::json!({"key_enc": enc}));
+                    }
                     *flow = ControlFlow::Exit;
                 }
             }
