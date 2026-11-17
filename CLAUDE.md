@@ -1,8 +1,14 @@
 # Claude Usage
 
-Windows tray app (`claude_usage.pyw`) that shows Claude plan usage. Built into an exe by `build.py`;
-`.github/workflows/release.yml` tags `v<__version__>` and publishes a release on each push to `main`
-whose version has no release yet, so bump `__version__` to release.
+Windows tray app written in Rust (`src/`, built with `cargo build --release` into one exe,
+`target/release/ClaudeUsage.exe`; `build.rs` embeds the icon and version info).
+`.github/workflows/release.yml` tags `v<version>` and publishes a release on each push to `main`
+whose `Cargo.toml` version has no release yet, so bump `version` in `Cargo.toml` to release.
+
+Layout: `src/app.rs` (widget, popup pages, tray, notifications), `src/usage.rs` (API, parsing),
+`src/store.rs` (settings, files, log), `src/draw.rs` (drawing), `src/win.rs` (Win32 helpers),
+`src/login.rs` (claude.ai login window, the `login` feature). Try the UI with
+`cargo run -- --demo`; data files keep the same names and format as the old Python version.
 
 ## Secrets: never leak them
 
@@ -17,7 +23,7 @@ This app handles real login tokens. Treat everything below as hard rules.
 
 **Rules:**
 - Never read the files above to debug. Use `python claude_usage.pyw --demo` or fake data instead.
-- Never print, `log()`, or put tokens, cookies, `Authorization` headers or `sessionKey` values in an
+- Never print, `log()` (`store::log`), or put tokens, cookies, `Authorization` headers or `sessionKey` values in an
   exception message. When logging an HTTP response, don't log request headers, and keep body logging
   to responses that can't contain credentials.
 - Never hardcode a token, cookie or API key in source, tests, screenshots or docs. The only

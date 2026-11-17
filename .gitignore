@@ -1,4 +1,5 @@
-# Build output (exe per version) and PyInstaller work files
+# Build output
+target/
 build/
 dist/
 *.spec

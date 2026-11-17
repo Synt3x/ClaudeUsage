@@ -1,0 +1,54 @@
+[package]
+name = "claude-usage"
+version = "2.0.0"
+edition = "2021"
+description = "Claude Usage: shows your Claude plan usage next to the Windows clock"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "ClaudeUsage"
+path = "src/main.rs"
+
+[features]
+default = ["login"]
+# The claude.ai login window (WebView2). Without it, the sessionKey can still be pasted.
+login = ["dep:wry", "dep:tao"]
+
+[dependencies]
+ab_glyph = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["alloc", "clock", "std"] }
+native-tls = "0.2"
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+ureq = { version = "2.12", default-features = false, features = ["json", "native-tls"] }
+winreg = "0.55"
+wry = { version = "0.53", optional = true }
+tao = { version = "0.34", optional = true }
+
+[dependencies.windows-sys]
+version = "0.60"
+features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+]
+
+[build-dependencies]
+embed-resource = "3"
+tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

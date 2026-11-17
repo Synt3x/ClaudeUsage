@@ -105,23 +105,25 @@ Only one copy runs at a time. If it's already running, starting it again tells y
 
 ## Run from source
 
+Claude Usage is written in Rust. Install [Rust](https://rustup.rs) (the default MSVC toolchain, which needs the Visual Studio C++ Build Tools), then:
+
 ```
-pip install --user -r requirements.txt
-pythonw claude_usage.pyw
+cargo run --release
 ```
 
-`python claude_usage.pyw --demo` shows fake data so you can try out the UI.
+`cargo run -- --demo` shows fake data so you can try out the UI.
 
 ## Build the exe
 
 ```
-pip install --user pyinstaller
-python build.py
+cargo build --release
 ```
 
-The version comes from `__version__` at the top of `claude_usage.pyw`; bump it before building. The exe is written to `build/<version>/ClaudeUsage-<version>.exe`, with that version in its file properties and on the Settings page.
+The exe is `target/release/ClaudeUsage.exe`, a single file with the icon and version in its file properties. The version comes from `version` in `Cargo.toml`; bump it before building. It's also shown on the Settings page.
 
-**Releases:** bump `__version__`, commit and push to `main`. GitHub then builds the exe, tags the commit `v<version>` and publishes it as a release (see `.github/workflows/release.yml`). Pushes that don't change `__version__` don't create a release.
+The claude.ai login window uses WebView2 (built into Windows 10 and 11). `cargo build --release --no-default-features` leaves it out; you can then still paste the `sessionKey` cookie on the Account tab.
+
+**Releases:** bump `version` in `Cargo.toml`, commit and push to `main`. GitHub then builds the exe, tags the commit `v<version>` and publishes it as `ClaudeUsage-<version>.exe` (see `.github/workflows/release.yml`). Pushes that don't change the version don't create a release.
 
 ## Privacy
 

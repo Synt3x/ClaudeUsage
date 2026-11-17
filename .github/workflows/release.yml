@@ -1,7 +1,7 @@
 # Builds ClaudeUsage-<version>.exe and publishes it as a GitHub release on every push to main
-# whose __version__ (in claude_usage.pyw) has no release yet. The tag v<version> is
-# created automatically. Pushes that don't bump __version__ are skipped.
-# To release: bump __version__, commit, push.
+# whose version (in Cargo.toml) has no release yet. The tag v<version> is created
+# automatically. Pushes that don't bump the version are skipped.
+# To release: bump version in Cargo.toml, commit, push.
 name: Release
 
 on:
@@ -22,38 +22,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Read __version__ and skip if already released
+      - name: Read the version and skip if already released
         id: ver
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ver=$(sed -n 's/^__version__ *= *"\([0-9.]*\)".*/\1/p' claude_usage.pyw)
+          ver=$(sed -n 's/^version *= *"\([0-9.]*\)".*/\1/p' Cargo.toml | head -1)
           if [ -z "$ver" ]; then
-            echo "No __version__ found in claude_usage.pyw"
+            echo "No version found in Cargo.toml"
             exit 1
           fi
           echo "VER=$ver" >> "$GITHUB_ENV"
           if gh release view "v$ver" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "refs/tags/v$ver" >/dev/null; then
-            echo "v$ver already exists, nothing to release. Bump __version__ to release."
+            echo "v$ver already exists, nothing to release. Bump the version to release."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "Releasing v$ver"
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-python@v5
+      - name: Install Rust
         if: steps.ver.outputs.skip == 'false'
-        with:
-          python-version: "3.12"
+        shell: bash
+        run: rustup toolchain install stable --profile minimal && rustup default stable
 
-      - name: Install dependencies
+      - name: Test
         if: steps.ver.outputs.skip == 'false'
-        run: pip install -r requirements.txt pyinstaller
+        run: cargo test --release
 
       - name: Build the exe
         if: steps.ver.outputs.skip == 'false'
-        run: python build.py
+        shell: bash
+        run: |
+          cargo build --release
+          mkdir -p "build/$VER"
+          cp target/release/ClaudeUsage.exe "build/$VER/ClaudeUsage-$VER.exe"
 
       - name: Tag and publish the release
         if: steps.ver.outputs.skip == 'false'
