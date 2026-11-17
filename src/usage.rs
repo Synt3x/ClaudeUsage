@@ -849,26 +849,26 @@ fn claude_ai_extras(settings: &Settings) -> Result<Option<AiData>, FetchError> {
         data.extras = c.extras;
         data.balance = c.balance;
     }
-    for path in ["/prepaid/credits"] {
-        let r = s.get(&format!("{base}{path}"))?;
-        let first = {
-            let mut c = ai_lock();
-            let new = !c.logged.iter().any(|p| p == path);
-            if new {
-                c.logged.push(path.to_string());
-            }
-            new
-        };
-        if first {
-            // record the shape once, to check the numbers are read right
-            let body: String = if r.ok() { r.body.chars().take(1500).collect() } else { String::new() };
-            log(&format!("claude.ai {path}: HTTP {} {body}", r.status));
+    // The credit balance, in a response whose shape isn't documented.
+    let path = "/prepaid/credits";
+    let r = s.get(&format!("{base}{path}"))?;
+    let first = {
+        let mut c = ai_lock();
+        let new = !c.logged.iter().any(|p| p == path);
+        if new {
+            c.logged.push(path.to_string());
         }
-        if r.ok() && data.balance.is_none() {
-            if let Ok(pj) = r.json() {
-                data.balance = money_any(&pj);
-                data.balance_expires = parse_time(g(&pj, "next_expires_at")).map(|t| t.to_rfc3339());
-            }
+        new
+    };
+    if first {
+        // record the shape once, to check the numbers are read right
+        let body: String = if r.ok() { r.body.chars().take(1500).collect() } else { String::new() };
+        log(&format!("claude.ai {path}: HTTP {} {body}", r.status));
+    }
+    if r.ok() && data.balance.is_none() {
+        if let Ok(pj) = r.json() {
+            data.balance = money_any(&pj);
+            data.balance_expires = parse_time(g(&pj, "next_expires_at")).map(|t| t.to_rfc3339());
         }
     }
     let t = {

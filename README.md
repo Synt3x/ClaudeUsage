@@ -124,7 +124,7 @@ The exe is `target/release/ClaudeUsage.exe`, a single file with the icon and ver
 
 The claude.ai login window uses WebView2 (built into Windows 10 and 11). `cargo build --release --no-default-features` leaves it out; you can then still paste the `sessionKey` cookie on the Account tab.
 
-**Releases:** bump `version` in `Cargo.toml`, commit and push to `main`. GitHub then builds the exe, tags the commit `v<version>` and publishes it as `ClaudeUsage-<version>.exe` (see `.github/workflows/release.yml`). Pushes that don't change the version don't create a release.
+**Releases:** bump `version` in `Cargo.toml`, commit and push to `main`. GitHub then builds the exe, tags the commit `v<version>` and publishes it as `ClaudeUsage-<version>.exe` (see `.github/workflows/release.yml`). Pushes that don't change the version don't create a release. Every other push and pull request is built and tested too, and the exe is attached to the run as a download, without a release.
 
 ## Privacy
 

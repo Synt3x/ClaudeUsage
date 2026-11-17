@@ -1,19 +1,19 @@
-# Builds ClaudeUsage-<version>.exe and publishes it as a GitHub release on every push to main
-# whose version (in Cargo.toml) has no release yet. The tag v<version> is created
-# automatically. Pushes that don't bump the version are skipped.
-# To release: bump version in Cargo.toml, commit, push.
-name: Release
+# Builds and tests on every push and pull request. On main, it also publishes
+# ClaudeUsage-<version>.exe as a GitHub release when that version (in Cargo.toml)
+# has no release yet; the tag v<version> is created automatically.
+# To release: bump version in Cargo.toml, commit, push to main.
+name: Build and release
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:  # run manually from the Actions tab
+  pull_request:
+  workflow_dispatch:  # run manually from the Actions tab (releases only on main)
 
 permissions:
   contents: write  # needed to create the tag and release
 
 concurrency:
-  group: release
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Read the version and skip if already released
+      - name: Read the version and decide whether to release
         id: ver
         shell: bash
         env:
@@ -34,33 +34,41 @@ jobs:
             exit 1
           fi
           echo "VER=$ver" >> "$GITHUB_ENV"
-          if gh release view "v$ver" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "refs/tags/v$ver" >/dev/null; then
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo "Not on main: build and test only."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          elif gh release view "v$ver" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "refs/tags/v$ver" >/dev/null; then
             echo "v$ver already exists, nothing to release. Bump the version to release."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
           else
             echo "Releasing v$ver"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install Rust
-        if: steps.ver.outputs.skip == 'false'
         shell: bash
         run: rustup toolchain install stable --profile minimal && rustup default stable
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: Test
-        if: steps.ver.outputs.skip == 'false'
         run: cargo test --release
 
       - name: Build the exe
-        if: steps.ver.outputs.skip == 'false'
         shell: bash
         run: |
           cargo build --release
           mkdir -p "build/$VER"
           cp target/release/ClaudeUsage.exe "build/$VER/ClaudeUsage-$VER.exe"
 
+      - name: Upload the exe (for testing builds that aren't released)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeUsage-${{ env.VER }}
+          path: build/${{ env.VER }}/ClaudeUsage-${{ env.VER }}.exe
+
       - name: Tag and publish the release
-        if: steps.ver.outputs.skip == 'false'
+        if: steps.ver.outputs.release == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

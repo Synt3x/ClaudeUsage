@@ -182,6 +182,7 @@ impl Canvas {
     }
 
     /// Rounded outline drawn inside the box, `width` px wide.
+    #[allow(clippy::too_many_arguments)]
     pub fn rrect_outline(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, r: f32, c: Rgb, width: f32) {
         let i = width / 2.0;
         if let Some(path) = rounded_rect(x0 + i, y0 + i, x1 - i, y1 - i, (r - i).max(0.0)) {
@@ -261,6 +262,7 @@ impl Canvas {
 
     /// Text placed like PIL's anchors: `h` is 'l' (left) or 'm' (middle), `v` is 'm' (middle of
     /// ascender..descender) or 't' (top of the ascender).
+    #[allow(clippy::too_many_arguments)]
     pub fn text_anchor(&mut self, fonts: &Fonts, s: Spec, x: f32, y: f32, anchor: (char, char), text: &str, c: Rgb) {
         let (asc, desc) = fonts.metrics(s);
         let x = if anchor.0 == 'm' { x - fonts.measure(s, text) / 2.0 } else { x };
@@ -282,7 +284,7 @@ pub fn bgra_straight(pm: &Pixmap) -> Vec<u8> {
 /// Premultiplied BGRA bytes (for layered windows) from a premultiplied pixmap.
 pub fn bgra_premul(pm: &Pixmap) -> Vec<u8> {
     let mut out = pm.data().to_vec();
-    for px in out.chunks_exact_mut(4) {
+    for px in out.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     out

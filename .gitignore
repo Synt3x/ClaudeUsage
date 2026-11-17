@@ -1,17 +1,6 @@
-# Build output
+# Build output (cargo, and the versioned exe the release workflow copies)
 target/
 build/
-dist/
-*.spec
-*.ico
-
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-env/
-.pytest_cache/
 
 # Editors and OS files
 .vscode/

@@ -5,7 +5,7 @@ Windows tray app written in Rust (`src/`, built with `cargo build --release` int
 `.github/workflows/release.yml` tags `v<version>` and publishes a release on each push to `main`
 whose `Cargo.toml` version has no release yet, so bump `version` in `Cargo.toml` to release.
 
-Layout: `src/app.rs` (widget, popup pages, tray, notifications), `src/usage.rs` (API, parsing),
+Layout: `src/app.rs` (widget, popup, tray, notifications, events), `src/app/view.rs` (drawing the pages and the widget), `src/usage.rs` (API, parsing),
 `src/store.rs` (settings, files, log), `src/draw.rs` (drawing), `src/win.rs` (Win32 helpers),
 `src/login.rs` (claude.ai login window, the `login` feature). Try the UI with
 `cargo run -- --demo`; data files keep the same names and format as the old Python version.
