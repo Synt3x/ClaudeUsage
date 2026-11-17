@@ -174,6 +174,7 @@ fn defaults() -> Map<String, Value> {
         "notify_5": true,
         "notify_reset": true,         // default for limit types not in notify_reset_keys
         "notify_reset_keys": {},      // per limit type: {"five_hour": true, "weekly_fable": false, ...}
+        "notify_reset_left": 100,     // reset alert only if this much (%) or less was left; 100 = always
         "notify_weekly": true,
         "refresh_minutes": 5,
         "source": "auto",             // auto | claude_code | claude_ai

@@ -56,7 +56,7 @@ The other settings tabs:
 - **This week:** daily peak of the 5-hour limit and how your weekly usage grew.
 - **Notifications:** before you run out, when a limit resets, and when something new to use shows up.
 - **Update check:** a banner in the usage window when a new version is out. Click it to open the release page.
-- **Light on the servers:** it asks for new numbers at most every 5 minutes, also across restarts.
+- **Light on the servers:** it asks for new numbers at most every 5 minutes, also across restarts. When you start it and the last numbers are older than that, it fetches right away.
 
 ## Settings
 
@@ -86,6 +86,7 @@ Open them with the gear icon in the usage window, or right-click the widget → 
 | When this much is left | **20%**, **10%**, **5%**. Each alert comes once per limit, and again only after that limit resets. |
 | Include weekly limits | Also alert for weekly and per-model limits. |
 | When a limit resets | One switch per limit type (5-hour, Weekly, and per-model ones like Fable), e.g. "Your weekly limit has reset". |
+| Only if this much was left | **Any** (always), **50%**, **20%** or **10%**: only tell me about a reset if that much or less of the limit was left just before it. |
 
 **Account**
 

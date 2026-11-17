@@ -240,6 +240,60 @@ fn chip_image(f: &Fonts, s: f32, text: &str, on: bool) -> Pixmap {
     c.pm
 }
 
+/// One part of the taskbar pill: (label, pct_text, timer_text, color).
+type Seg = (String, String, String, Rgb);
+
+/// Taskbar pill. segs: (label, pct_text, timer_text, color); label is "" when only one is shown.
+fn pill(fonts: &Fonts, scale: f32, square: bool, outline: bool, bg: Rgb, segs: &[Seg]) -> Pixmap {
+    let px = |v: f32| (v * scale).trunc();
+    let h = px(26.0);
+    let (pad, gap, small, sep) = (px(8.0), px(6.0), px(4.0), px(14.0));
+    let bold = Spec { face: Face::Bold, em: px(12.0) };
+    let reg = Spec { face: Face::Reg, em: px(12.0) };
+    let col = segs.iter().map(|s| s.3).max_by_key(|c| severity(*c)).unwrap_or(MUTED);
+    let (sq_w, sq_h) = if square { (px(12.0), px(10.0)) } else { (0.0, 0.0) };
+    enum Part {
+        Sep(f32),
+        Txt(f32, String, Spec, Rgb),
+    }
+    let mut parts = Vec::new();
+    let mut x = pad + sq_w + if sq_w > 0.0 { gap } else { 0.0 };
+    for (i, (label, text, timer, c)) in segs.iter().enumerate() {
+        if i > 0 {
+            parts.push(Part::Sep(x + sep / 2.0));
+            x += sep;
+        }
+        if !label.is_empty() {
+            parts.push(Part::Txt(x, label.clone(), reg, MUTED));
+            x += fonts.measure(reg, label) + small;
+        }
+        parts.push(Part::Txt(x, text.clone(), bold, *c));
+        x += fonts.measure(bold, text);
+        if !timer.is_empty() {
+            x += gap;
+            parts.push(Part::Txt(x, timer.clone(), reg, MUTED));
+            x += fonts.measure(reg, timer);
+        }
+    }
+    let w = (x + pad).trunc();
+    let mut c = Canvas::new(w as u32, h as u32, Some(bg));
+    let lw = scale.round().max(1.0);
+    if outline {
+        c.rrect_outline(0.0, 0.0, w, h, px(6.0), col, lw);
+    }
+    if sq_w > 0.0 {
+        let sy = (h - sq_h) / 2.0;
+        c.rrect(pad, sy, pad + sq_w, sy + sq_h, px(2.0), col);
+    }
+    for p in parts {
+        match p {
+            Part::Sep(sx) => c.rect(sx - lw / 2.0, h * 0.3, lw, h * 0.4, MUTED),
+            Part::Txt(tx, t, sp, color) => c.text_anchor(&fonts, sp, tx, h / 2.0, ('l', 'm'), &t, color),
+        }
+    }
+    c.pm
+}
+
 // ----------------------------------------------------------------- page layout
 
 /// Lays out a page top to bottom like Tk's pack(): `y` is the next free row.
@@ -485,6 +539,8 @@ impl<'a> L<'a> {
 struct Tray {
     hicon: HICON,
     sig: Option<(Vec<u8>, String)>,
+    /// The logo shown in notifications (made once).
+    logo: HICON,
 }
 
 fn copy_w(dst: &mut [u16], s: &str) {
@@ -747,7 +803,7 @@ impl App {
             widget_pm: None,
             widget_at: None,
             widget_dirty: true,
-            tray: Tray { hicon: null_mut(), sig: None },
+            tray: Tray { hicon: null_mut(), sig: None, logo: null_mut() },
             hook: null_mut(),
             login: None,
             entry_focus: false,
@@ -777,8 +833,9 @@ impl App {
         self.last_fetch = f("last_fetch");
         self.rate_until = f("rate_until");
         usage::set_ai_cache(f("ai_t"), st.get("ai_data").and_then(usage::AiData::from_json));
-        // After a restart, wait until the regular interval since the last request has passed.
-        self.next_fetch = (self.last_fetch + self.refresh_secs()).max(self.rate_until);
+        // After a restart, fetch right away if the last request is at least 5 minutes old
+        // (the most often the server is asked), unless it asked us to wait longer.
+        self.next_fetch = (self.last_fetch + MIN_FETCH_GAP).max(self.rate_until);
         if now() >= self.next_fetch {
             self.request_fetch();
         }
@@ -951,62 +1008,14 @@ impl App {
         }
     }
 
-    /// Taskbar pill. segs: (label, pct_text, timer_text, color); label is "" when only one is shown.
-    fn pill_image(&self, segs: &[(String, String, String, Rgb)]) -> Pixmap {
-        let bg = self.taskbar_bg();
-        let px = |v: f32| (v * self.scale).trunc();
-        let h = px(26.0);
-        let (pad, gap, small, sep) = (px(8.0), px(6.0), px(4.0), px(14.0));
-        let bold = Spec { face: Face::Bold, em: px(12.0) };
-        let reg = Spec { face: Face::Reg, em: px(12.0) };
+    fn pill_image(&self, segs: &[Seg]) -> Pixmap {
         let st = &self.settings;
-        let col = segs.iter().map(|s| s.3).max_by_key(|c| severity(*c)).unwrap_or(MUTED);
-        let (sq_w, sq_h) = if st.b("widget_square") { (px(12.0), px(10.0)) } else { (0.0, 0.0) };
-        enum Part {
-            Sep(f32),
-            Txt(f32, String, Spec, Rgb),
-        }
-        let mut parts = Vec::new();
-        let mut x = pad + sq_w + if sq_w > 0.0 { gap } else { 0.0 };
-        for (i, (label, text, timer, c)) in segs.iter().enumerate() {
-            if i > 0 {
-                parts.push(Part::Sep(x + sep / 2.0));
-                x += sep;
-            }
-            if !label.is_empty() {
-                parts.push(Part::Txt(x, label.clone(), reg, MUTED));
-                x += self.fonts.measure(reg, label) + small;
-            }
-            parts.push(Part::Txt(x, text.clone(), bold, *c));
-            x += self.fonts.measure(bold, text);
-            if !timer.is_empty() {
-                x += gap;
-                parts.push(Part::Txt(x, timer.clone(), reg, MUTED));
-                x += self.fonts.measure(reg, timer);
-            }
-        }
-        let w = (x + pad).trunc();
-        let mut c = Canvas::new(w as u32, h as u32, Some(bg));
-        let lw = self.scale.round().max(1.0);
-        if st.b("widget_outline") {
-            c.rrect_outline(0.0, 0.0, w, h, px(6.0), col, lw);
-        }
-        if sq_w > 0.0 {
-            let sy = (h - sq_h) / 2.0;
-            c.rrect(pad, sy, pad + sq_w, sy + sq_h, px(2.0), col);
-        }
-        for p in parts {
-            match p {
-                Part::Sep(sx) => c.rect(sx - lw / 2.0, h * 0.3, lw, h * 0.4, MUTED),
-                Part::Txt(tx, t, sp, color) => c.text_anchor(&self.fonts, sp, tx, h / 2.0, ('l', 'm'), &t, color),
-            }
-        }
-        c.pm
+        pill(&self.fonts, self.scale, st.b("widget_square"), st.b("widget_outline"), self.taskbar_bg(), segs)
     }
 
     fn update_widget(&mut self) {
         let st = &self.settings;
-        let segs: Vec<(String, String, String, Rgb)> = match &self.usage {
+        let segs: Vec<Seg> = match &self.usage {
             Some(usage) => {
                 let mut keys: Vec<&str> = [("five_hour", st.b("widget_five")), ("seven_day", st.b("widget_weekly"))]
                     .into_iter()
@@ -1172,12 +1181,18 @@ impl App {
         self.tray.hicon = icon;
     }
 
-    fn notify(&self, title: &str, msg: &str) {
+    fn notify(&mut self, title: &str, msg: &str) {
+        if self.tray.logo.is_null() {
+            // Large notification icon: the app logo at the system's large icon size.
+            let n = unsafe { GetSystemMetrics(SM_CXICON) }.max(32) as u32;
+            self.tray.logo = win::make_icon(&draw_logo(n, 0.03, None));
+        }
         let mut nid = self.nid();
         nid.uFlags = NIF_INFO;
         copy_w(&mut nid.szInfo, msg);
         copy_w(&mut nid.szInfoTitle, title);
-        nid.dwInfoFlags = NIIF_NONE;
+        nid.dwInfoFlags = if self.tray.logo.is_null() { NIIF_NONE } else { NIIF_USER | NIIF_LARGE_ICON };
+        nid.hBalloonIcon = self.tray.logo;
         unsafe { Shell_NotifyIconW(NIM_MODIFY, &nid) };
     }
 
@@ -1600,6 +1615,8 @@ impl App {
                     })
                     .collect();
                 l.labeled("When a limit resets", c);
+                let c = choices("notify_reset_left", &[(json!(100), "Any"), (json!(50), "50%"), (json!(20), "20%"), (json!(10), "10%")]);
+                l.labeled("Only if this much was left", c);
             }
             _ => {
                 l.section("Data source");
@@ -1978,7 +1995,9 @@ impl App {
             };
             if was_reset {
                 done.clear();
-                if self.reset_enabled(&u.key) && prev_pct.unwrap_or(0.0) >= 10.0 {
+                // Only when this much (or less) was left before the reset; 100 = always.
+                let max_left = self.settings.i("notify_reset_left") as f64;
+                if self.reset_enabled(&u.key) && 100.0 - prev_pct.unwrap_or(0.0) <= max_left {
                     let name = limit_name(&u.key, &u.label);
                     self.notify(&format!("Your {name} has reset"), &format!("You're at {pct:.0}% used. Time to continue!"));
                 }
@@ -2027,6 +2046,9 @@ impl App {
             if !self.tray.hicon.is_null() {
                 DestroyIcon(self.tray.hicon);
             }
+            if !self.tray.logo.is_null() {
+                DestroyIcon(self.tray.logo);
+            }
             DestroyWindow(self.popup);
             DestroyWindow(self.widget);
             DestroyWindow(self.root);
@@ -2043,6 +2065,34 @@ mod tests {
         assert_eq!(fmt_money(&Money { amount: 1234.5, currency: "USD".into() }), "$1,234.50");
         assert_eq!(fmt_money(&Money { amount: 37.6, currency: "eur".into() }), "€37.60");
         assert_eq!(fmt_money(&Money { amount: 5.0, currency: "SEK".into() }), "5.00 SEK");
+    }
+
+    /// Writes the README's widget.png: `CU_SHOTS_DIR=assets/screenshots cargo test -- --ignored widget_screenshot`
+    #[test]
+    #[ignore]
+    fn widget_screenshot() {
+        let dir = std::env::var("CU_SHOTS_DIR").expect("set CU_SHOTS_DIR");
+        let f = Fonts::load();
+        let seg = |l: &str, p: &str, t: &str, c| (l.to_string(), p.to_string(), t.to_string(), c);
+        let variants: Vec<Vec<Seg>> = vec![
+            vec![seg("", "42%", "3h 56m", CLAY)],
+            vec![seg("5h", "42%", "3h 56m", CLAY), seg("W", "63%", "1d 21h", CLAY)],
+            vec![seg("", "63%", "", CLAY)],
+            vec![seg("", "85%", "3h 56m", AMBER)],
+            vec![seg("", "97%", "3h 56m", RED)],
+        ];
+        let bg = (32, 32, 32);
+        let pills: Vec<Pixmap> = variants.iter().map(|v| pill(&f, 1.0, true, true, bg, v)).collect();
+        let (margin, gap) = (12.0, 10.0);
+        let w = pills.iter().map(|p| p.width()).max().unwrap() as f32 + 2.0 * margin;
+        let h = pills.iter().map(|p| p.height() as f32).sum::<f32>() + 2.0 * margin + gap * (pills.len() - 1) as f32;
+        let mut c = Canvas::new(w as u32, h as u32, Some(bg));
+        let mut y = margin;
+        for p in &pills {
+            c.blit(p, margin, y);
+            y += p.height() as f32 + gap;
+        }
+        c.pm.save_png(std::path::Path::new(&dir).join("widget.png")).unwrap();
     }
 
     #[test]

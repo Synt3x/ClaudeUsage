@@ -43,6 +43,10 @@ features = [
   "Win32_UI_WindowsAndMessaging",
 ]
 
+[dev-dependencies]
+# PNG output for the screenshot test only
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd", "png-format"] }
+
 [build-dependencies]
 embed-resource = "3"
 tiny-skia = { version = "0.11", default-features = false, features = ["std"] }

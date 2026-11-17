@@ -24,8 +24,7 @@ fn main() {
         return;
     }
     // Only one instance at a time (same mutex name as the Python version).
-    // A --demo copy can run next to the real one.
-    let name = win::wide(if store::demo() { "Local\\ClaudeUsageTrayAppDemo" } else { "Local\\ClaudeUsageTrayApp" });
+    let name = win::wide("Local\\ClaudeUsageTrayApp");
     let _mutex = unsafe { windows_sys::Win32::System::Threading::CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
     if unsafe { windows_sys::Win32::Foundation::GetLastError() } == windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS {
         // Say so instead of quietly doing nothing; only one copy can run at a time.
