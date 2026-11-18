@@ -57,9 +57,8 @@ enum Action {
     Main,
     Url(String),
     Toggle(&'static str),
-    Set(&'static str, Value),
     /// Dropdown: pick one value for the setting from a menu.
-    Pick(&'static str, Vec<(Value, &'static str)>),
+    Pick(&'static str, Vec<(Value, String)>),
     ResetKey(String, bool),
     Tab(&'static str),
     Login,
@@ -156,6 +155,20 @@ fn limit_name(key: &str, label: &str) -> String {
         "five_hour" => "5-hour limit".into(),
         "seven_day" => "weekly limit".into(),
         _ => format!("weekly {} limit", short_name(key, label)),
+    }
+}
+
+/// One word for the widget about why there are no fresh numbers.
+fn error_word(e: &str) -> &'static str {
+    let e = e.to_lowercase();
+    if e.contains("network error") {
+        "Offline"
+    } else if e.contains("too many") {
+        "Wait"
+    } else if ["expired", "sign in", "log in", "no claude code login", "session key", "refused"].iter().any(|w| e.contains(w)) {
+        "Log in"
+    } else {
+        "Error"
     }
 }
 
@@ -299,7 +312,7 @@ enum After {
     Nothing,
     Menu { x: i32, y: i32, tray: bool },
     /// Dropdown menu for a setting, opened below (x, y) in screen pixels.
-    Pick { key: &'static str, opts: Vec<(Value, &'static str)>, x: i32, y: i32 },
+    Pick { key: &'static str, opts: Vec<(Value, String)>, x: i32, y: i32 },
 }
 
 unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -327,7 +340,7 @@ fn run_after(after: After) {
         }) else {
             return;
         };
-        let items: Vec<Option<&str>> = opts.iter().map(|(_, t)| Some(*t)).collect();
+        let items: Vec<Option<&str>> = opts.iter().map(|(_, t)| Some(t.as_str())).collect();
         let checked = opts.iter().position(|(v, _)| *v == cur).map(|i| i as u32 + 1);
         let cmd = win::popup_menu(root as HWND, &items, x, y, win::MenuOpts { checked, below: true, ..Default::default() });
         APP.with(|a| {
@@ -463,6 +476,12 @@ impl App {
                     sd: Some(((30 - d) % 7 * 12) as f64),
                 })
                 .collect();
+            // the last hour, so the demo shows a pace line under the 5-hour bar
+            // (same formula as the demo reading: +2% a minute, wrapping at 100)
+            for i in (1..=20).rev() {
+                let st = (t - i as f64 * 120.0).trunc();
+                history.push(Sample { t: st, fh: ((st / 30.0) % 100.0).round(), sd: None });
+            }
         }
         let notified = match store::load_json(&store::path("notified.json")) {
             Some(Value::Object(m)) => m,
@@ -661,6 +680,11 @@ impl App {
                     self.toggle_popup();
                     return done;
                 }
+                WM_MBUTTONUP => {
+                    // Middle-click: refresh without opening the popup.
+                    self.manual_refresh();
+                    return done;
+                }
                 WM_RBUTTONUP => {
                     let (x, y) = win::cursor_pos();
                     return (Some(0), After::Menu { x, y, tray: false });
@@ -741,6 +765,51 @@ impl App {
         pill(&self.fonts, self.scale, st.b("widget_square"), st.b("widget_outline"), self.taskbar_bg(), segs)
     }
 
+    /// "At this pace" line for the 5-hour and weekly limits, from the recent history samples:
+    /// when 100% will be reached (if before the reset), or roughly where it ends at the reset.
+    fn pace(&self, u: &Limit) -> Option<(String, Rgb)> {
+        // (length of the period, how far back to measure, shortest span worth trusting)
+        let (period, back, min_span) = match u.key.as_str() {
+            "five_hour" => (5.0 * 3600.0, 90.0 * 60.0, 10.0 * 60.0),
+            "seven_day" => (7.0 * 86400.0, 86400.0, 2.0 * 3600.0),
+            _ => return None,
+        };
+        let reset = u.resets_at?.timestamp() as f64;
+        let t1 = self.updated?;
+        if self.stale() || reset <= now() {
+            return None;
+        }
+        let start = (reset - period).max(t1 - back);
+        let value = |s: &Sample| if u.key == "five_hour" { Some(s.fh) } else { s.sd };
+        // Measure from the oldest sample after the last drop (a reset or a new period).
+        let mut first: Option<(f64, f64)> = None;
+        let mut prev = f64::MIN;
+        for s in self.history.iter().filter(|s| s.t >= start && s.t < t1) {
+            let Some(v) = value(s) else { continue };
+            if first.is_none() || v < prev {
+                first = Some((s.t, v));
+            }
+            prev = v;
+        }
+        let (t0, v0) = first?;
+        if t1 - t0 < min_span || u.pct < v0 {
+            return None;
+        }
+        let rate = (u.pct - v0) / (t1 - t0); // % per second
+        if rate <= 0.0 {
+            return None;
+        }
+        let full = t1 + (100.0 - u.pct) / rate;
+        if full < reset {
+            let at = Local.timestamp_opt(full as i64, 0).single()?;
+            let fmt = if at.date_naive() == Local::now().date_naive() { "%H:%M" } else { "%a %H:%M" };
+            Some((format!("At this pace: 100% around {}", at.format(fmt)), AMBER))
+        } else {
+            let end = u.pct + rate * (reset - t1);
+            Some((format!("At this pace: about {end:.0}% at the reset"), MUTED))
+        }
+    }
+
     /// The numbers are too old to trust: no successful update for 3 refresh periods (at least 15 min).
     fn stale(&self) -> bool {
         let max_age = (3 * self.settings.i("refresh_minutes")).max(15) as f64 * 60.0;
@@ -753,11 +822,13 @@ impl App {
         let segs: Vec<Seg> = match fresh {
             Some(usage) => {
                 let show = st.s("widget_show");
-                let mut keys: Vec<&str> = [("five_hour", show != "seven_day"), ("seven_day", show != "five_hour")]
-                    .into_iter()
-                    .filter(|(k, on)| *on && usage.iter().any(|l| l.key == *k))
-                    .map(|(k, _)| k)
-                    .collect();
+                let mut keys: Vec<&str> = match show.as_str() {
+                    "five_hour" | "seven_day" | "both" => {
+                        [("five_hour", show != "seven_day"), ("seven_day", show != "five_hour")].into_iter().filter(|(_, on)| *on).map(|(k, _)| k).collect()
+                    }
+                    other => vec![other], // a per-model limit, like weekly_fable
+                };
+                keys.retain(|k| usage.iter().any(|l| l.key == *k));
                 if keys.is_empty() {
                     keys.push("five_hour");
                 }
@@ -775,7 +846,8 @@ impl App {
                     })
                     .collect()
             }
-            None => vec![(String::new(), if self.error.is_some() { "!" } else { "--%" }.into(), String::new(), MUTED)],
+            // No usable numbers: say why in a word (Offline, Log in...) instead of a bare "!".
+            None => vec![(String::new(), self.error.as_deref().map_or("--%", error_word).into(), String::new(), MUTED)],
         };
         self.widget_pm = Some(self.pill_image(&segs));
         self.widget_dirty = true;
@@ -909,7 +981,13 @@ impl App {
                     })
                     .collect();
                 let head = if self.stale() { "Claude usage · out of date" } else { "Claude usage" };
-                format!("{head}\n{}", lines.join("\n"))
+                let mut t = format!("{head}\n{}", lines.join("\n"));
+                if let Some(e) = &self.error {
+                    // "Offline · numbers from 14:05"
+                    let when = self.updated.and_then(|u| Local.timestamp_opt(u as i64, 0).single()).map(|d| d.format("%H:%M").to_string());
+                    t += &format!("\n{}{}", error_word(e), when.map(|w| format!(" · numbers from {w}")).unwrap_or_default());
+                }
+                t
             }
             None => "Claude usage".into(),
         };
@@ -1058,7 +1136,6 @@ impl App {
                 let v = !self.settings.b(k);
                 self.set_setting(k, json!(v));
             }
-            Action::Set(k, v) => self.set_setting(k, v),
             Action::ResetKey(k, v) => {
                 let mut keys = self.settings.get("notify_reset_keys").as_object().cloned().unwrap_or_default();
                 keys.insert(k, json!(v));
@@ -1522,6 +1599,11 @@ mod tests {
     #[test]
     fn names() {
         assert_eq!(short_name("weekly_fable", "Weekly, Fable"), "Fable");
+        assert_eq!(error_word("network error: Dns / network error: Dns"), "Offline");
+        assert_eq!(error_word("claude.ai session expired or not valid. Log in again on the Account tab."), "Log in");
+        assert_eq!(error_word("Claude Code login expired. Open Claude Code to renew it."), "Log in");
+        assert_eq!(error_word("Too many usage requests right now. Trying again at 14:05."), "Wait");
+        assert_eq!(error_word("Usage request failed (HTTP 500)"), "Error");
         assert_eq!(limit_name("seven_day", "Weekly, all models"), "weekly limit");
         assert_eq!(limit_name("weekly_fable", "Weekly, Fable"), "weekly Fable limit");
         assert_eq!(color_for(81.0), AMBER);

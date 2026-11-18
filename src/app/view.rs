@@ -241,7 +241,8 @@ impl<'a> L<'a> {
     }
 
     /// One limit: name, % used, bar and reset time. `old`: the numbers are out of date (greyed).
-    fn bar_block(&mut self, label: &str, pct: f64, reset: &Option<DateTime<Utc>>, note: &str, old: bool) {
+    /// `pace`: the "At this pace" line and its color.
+    fn bar_block(&mut self, label: &str, pct: f64, reset: &Option<DateTime<Utc>>, note: &str, old: bool, pace: Option<(String, Rgb)>) {
         let r9 = self.pt(9.0, Face::Reg);
         let b9 = self.pt(9.0, Face::Bold);
         let r8 = self.pt(8.0, Face::Reg);
@@ -262,6 +263,9 @@ impl<'a> L<'a> {
             txt = format!("{:.0}% left · {txt}", 100.0 - pct);
         }
         self.label(&txt, r8, MUTED, (0.0, 0.0));
+        if let Some((p, col)) = pace.filter(|_| !old) {
+            self.label(&p, r8, col, (0.0, 0.0));
+        }
         if !note.is_empty() {
             self.label(note, r8, MUTED, (0.0, 0.0));
         }
@@ -399,7 +403,7 @@ impl App {
         }
         if let Some(usage) = &self.usage {
             for u in usage {
-                l.bar_block(&u.label, u.pct, &u.resets_at, &u.note, self.stale());
+                l.bar_block(&u.label, u.pct, &u.resets_at, &u.note, self.stale(), self.pace(u));
             }
             if self.settings.b("show_credits") {
                 self.credits_section(&mut l);
@@ -600,9 +604,28 @@ impl App {
         let (f, sc) = (&self.fonts, self.scale);
         l.header("Settings", "Changes save automatically", &[(ICON_BACK, Some(Action::Main))]);
         let chip = |t: &str, on: bool| chip_image(f, sc, t, on);
-        let choices = |key: &'static str, opts: &[(Value, &str)]| -> Vec<(Pixmap, Action)> {
-            opts.iter().map(|(v, t)| (chip(t, s.get(key) == v), Action::Set(key, v.clone()))).collect()
+        // Pick-one setting: a button showing the current choice; clicking it opens a menu.
+        let dropdown = |key: &'static str, opts: &[(Value, &str)]| -> Vec<(Pixmap, Action)> {
+            let opts: Vec<(Value, String)> = opts.iter().map(|(v, t)| (v.clone(), t.to_string())).collect();
+            let cur = opts.iter().find(|(v, _)| s.get(key) == v).or(opts.first()).map_or("", |(_, t)| t.as_str());
+            vec![(chip(&format!("{cur}  ▾"), false), Action::Pick(key, opts.clone()))]
         };
+        // Per-model limits (like Fable) the account has, for the widget and tray choices.
+        let extra: Vec<(Value, String)> = self
+            .usage
+            .iter()
+            .flatten()
+            .filter(|u| u.key != "five_hour" && u.key != "seven_day")
+            .map(|u| (json!(u.key), short_name(&u.key, &u.label)))
+            .collect();
+        let with_extra = |base: &[(Value, &str)]| -> Vec<(Value, String)> {
+            let mut v: Vec<(Value, String)> = base.iter().map(|(v, t)| (v.clone(), t.to_string())).collect();
+            v.extend(extra.iter().cloned());
+            v
+        };
+        fn refs(v: &[(Value, String)]) -> Vec<(Value, &str)> {
+            v.iter().map(|(a, b)| (a.clone(), b.as_str())).collect()
+        }
         let multi = |items: &[(&'static str, &str)]| -> Vec<(Pixmap, Action)> {
             items.iter().map(|(k, t)| (chip(t, s.b(k)), Action::Toggle(k))).collect()
         };
@@ -611,19 +634,19 @@ impl App {
                 l.section("Startup");
                 l.toggle("autostart", s.b("autostart"), "Start with Windows", "");
                 l.toggle("check_updates", s.b("check_updates"), "Check for updates", "Banner when a new version is out");
-                let c = choices("refresh_minutes", &[(json!(5), "5 min"), (json!(10), "10 min"), (json!(15), "15 min"), (json!(30), "30 min")]);
+                let c = dropdown("refresh_minutes", &[(json!(5), "5 min"), (json!(10), "10 min"), (json!(15), "15 min"), (json!(30), "30 min")]);
                 l.labeled("Refresh every", c);
             }
             "display" => {
                 l.section("Taskbar");
                 l.toggle("show_taskbar_widget", s.b("show_taskbar_widget"), "Usage next to the clock", "");
                 if s.b("show_taskbar_widget") {
-                    let opts = vec![(json!("five_hour"), "5 hours"), (json!("seven_day"), "Week"), (json!("both"), "Both")];
-                    let cur = opts.iter().find(|(v, _)| s.get("widget_show") == v).map_or("5 hours", |(_, t)| *t);
-                    l.labeled("Show", vec![(chip(&format!("{cur}  ▾"), false), Action::Pick("widget_show", opts))]);
+                    let opts = with_extra(&[(json!("five_hour"), "5 hours"), (json!("seven_day"), "Week"), (json!("both"), "Both")]);
+                    l.labeled("Show", dropdown("widget_show", &refs(&opts)));
                     l.labeled("", multi(&[("widget_timer", "Time left"), ("widget_square", "Square"), ("widget_outline", "Outline")]));
                 }
-                let c = choices("tray_show", &[(json!("off"), "Off"), (json!("five_hour"), "5-hour"), (json!("seven_day"), "Weekly")]);
+                let opts = with_extra(&[(json!("off"), "Off"), (json!("five_hour"), "5 hours"), (json!("seven_day"), "Week")]);
+                let c = dropdown("tray_show", &refs(&opts));
                 l.labeled("Number in the tray icon", c);
                 l.section("Popup");
                 l.toggle("show_credits", s.b("show_credits"), "Credits & resets", "With the link to the usage page");
@@ -645,13 +668,13 @@ impl App {
                     })
                     .collect();
                 l.labeled("When a limit resets", c);
-                let c = choices("notify_reset_left", &[(json!(100), "Any"), (json!(50), "50%"), (json!(20), "20%"), (json!(10), "10%")]);
+                let c = dropdown("notify_reset_left", &[(json!(100), "Any"), (json!(50), "50%"), (json!(20), "20%"), (json!(10), "10%")]);
                 l.labeled("Only if this much was left", c);
             }
             _ => {
                 l.section("Data source");
-                let c = choices("source", &[(json!("auto"), "Auto"), (json!("claude_code"), "Claude Code"), (json!("claude_ai"), "claude.ai")]);
-                l.labeled("", c);
+                let c = dropdown("source", &[(json!("auto"), "Auto"), (json!("claude_code"), "Claude Code"), (json!("claude_ai"), "claude.ai")]);
+                l.labeled("Get usage from", c);
                 l.toggle("allow_token_refresh", s.b("allow_token_refresh"), "Renew Claude Code login", "When it has expired");
                 l.section("claude.ai");
                 let logged_in = s.has_session_key() && !self.entry_open;

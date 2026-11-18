@@ -44,13 +44,15 @@ The other settings tabs:
   </tr>
 </table>
 
-**Next to the clock.** The widget can show the 5-hour limit, the weekly limit, or both, with the time left until each resets. It turns amber when 20% or less is left and red at 5% or less.
+**Next to the clock.** The widget can show the 5-hour limit, the weekly limit, both, or a per-model limit such as Fable, with the time left until each resets. It turns amber when 20% or less is left and red at 5% or less. Click it for the usage window, middle-click it to refresh, right-click it for the menu. When the numbers can't be updated it says why in a word, such as **Offline** or **Log in**, instead of showing old numbers.
 
 <img src="assets/screenshots/widget.png" alt="Taskbar widget variants">
 
 ## Features
 
 - **5-hour and weekly limits** with progress bars and reset times. Per-model weekly limits (for example Fable) appear automatically when your plan has them, and disappear when it doesn't.
+- **At this pace:** from your recent usage, when you'll hit 100% if that's before the reset (in amber), or roughly where you'll be when it resets.
+- **Honest about old numbers:** numbers that are out of date, or from before a reset, are greyed out and marked as such. When you sign in, unlock or wake the PC and the numbers are over 5 minutes old, it fetches new ones.
 - **Credits:** your credit balance and when it expires, plus your monthly credit limit when usage credits are on. **Open usage page ↗** takes you to your usage page on claude.ai.
 - **Resets & extras:** limit resets you can use, such as "Full reset · 1 available · Expires Wed 10 Dec 23:00". Click one to open the usage page on claude.ai, where you can use it.
 - **This week:** daily peak of the 5-hour limit and how your weekly usage grew.
@@ -74,8 +76,8 @@ Open them with the gear icon in the usage window, or right-click the widget → 
 
 | Setting | What it does |
 |---|---|
-| Usage next to the clock | Shows or hides the widget in the taskbar. When it's on, choose what it shows: **5-hour**, **Weekly**, **Time left** (until each resets), plus the colored **Square** and **Outline**. |
-| Number in the tray icon | **Off** (just the logo), **5-hour** or **Weekly**. |
+| Usage next to the clock | Shows or hides the widget in the taskbar. When it's on, **Show** picks the limit: **5 hours**, **Week**, **Both**, or a per-model limit such as **Fable**. Also: **Time left** (until each resets), plus the colored **Square** and **Outline**. |
+| Number in the tray icon | **Off** (just the logo), **5 hours**, **Week**, or a per-model limit. |
 | Credits & resets | Shows or hides credits, limit resets and the usage page link in the usage window. |
 | This week's graph | Shows or hides the weekly chart in the usage window. |
 
@@ -92,9 +94,9 @@ Open them with the gear icon in the usage window, or right-click the widget → 
 
 | Setting | What it does |
 |---|---|
-| Auto / Claude Code / claude.ai | Where usage is read from. **Auto** uses your Claude Code login and falls back to claude.ai. |
+| Get usage from | **Auto**, **Claude Code** or **claude.ai**. **Auto** uses your Claude Code login and falls back to claude.ai. |
 | Renew Claude Code login | Renews the Claude Code login when it has expired, so the numbers keep updating. |
-| claude.ai: Log in | Opens claude.ai in a small window. After you sign in, credits and limit resets are shown too. **Log out** removes the login. While logged out you can also paste the `sessionKey` cookie yourself with the **Paste** button. If the login window can't open, a notification says so. |
+| claude.ai: Log in | Opens claude.ai in a small window. After you sign in, credits and limit resets are shown too. When the login expires, a **Log in** button also shows in the usage window. **Log out** removes the login. While logged out you can also paste the `sessionKey` cookie yourself with the **Paste** button. If the login window can't open, a notification says so. |
 
 ## Install
 
