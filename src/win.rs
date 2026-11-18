@@ -32,9 +32,12 @@ pub fn class_name(h: HWND) -> String {
     String::from_utf16_lossy(&buf[..n.max(0) as usize])
 }
 
+/// Set while popup_menu() runs: its owner, not the menu, has the focus then.
+static OUR_MENU: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// A native menu (ours or the tray's) is open.
 pub fn menu_open() -> bool {
-    class_name(unsafe { GetForegroundWindow() }) == "#32768"
+    OUR_MENU.load(std::sync::atomic::Ordering::Relaxed) || class_name(unsafe { GetForegroundWindow() }) == "#32768"
 }
 
 pub fn tray_wnd() -> HWND {
@@ -287,7 +290,9 @@ pub fn popup_menu(owner: HWND, items: &[Option<&str>], x: i32, y: i32, o: MenuOp
         }
         SetForegroundWindow(owner); // required so the menu closes when clicking elsewhere
         let align = if o.below { TPM_TOPALIGN } else { TPM_BOTTOMALIGN };
+        OUR_MENU.store(true, std::sync::atomic::Ordering::Relaxed);
         let cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON | align, x, y, 0, owner, std::ptr::null());
+        OUR_MENU.store(false, std::sync::atomic::Ordering::Relaxed);
         PostMessageW(owner, WM_NULL, 0, 0);
         DestroyMenu(m);
         cmd.max(0) as u32

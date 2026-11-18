@@ -330,15 +330,18 @@ fn run_after(after: After) {
         let items: Vec<Option<&str>> = opts.iter().map(|(_, t)| Some(*t)).collect();
         let checked = opts.iter().position(|(v, _)| *v == cur).map(|i| i as u32 + 1);
         let cmd = win::popup_menu(root as HWND, &items, x, y, win::MenuOpts { checked, below: true, ..Default::default() });
-        if let Some((v, _)) = opts.get((cmd as usize).wrapping_sub(1)) {
-            APP.with(|a| {
-                if let Ok(mut g) = a.try_borrow_mut() {
-                    if let Some(app) = g.as_mut() {
+        APP.with(|a| {
+            if let Ok(mut g) = a.try_borrow_mut() {
+                if let Some(app) = g.as_mut() {
+                    // The menu's owner took the focus: hand it back so the popup stays open.
+                    unsafe { SetForegroundWindow(app.popup) };
+                    app.popup_had_focus = false;
+                    if let Some((v, _)) = opts.get((cmd as usize).wrapping_sub(1)) {
                         app.set_setting(key, v.clone());
                     }
                 }
-            });
-        }
+            }
+        });
         return;
     }
     if let After::Menu { x, y, tray } = after {
