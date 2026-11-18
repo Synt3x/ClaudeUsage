@@ -183,8 +183,7 @@ fn defaults() -> Map<String, Value> {
         "widget_square": true,        // small colored square in the taskbar widget
         "widget_outline": true,       // rounded outline around the taskbar widget
         "widget_timer": true,         // reset countdown in the taskbar widget
-        "widget_five": true,          // 5-hour usage in the taskbar widget
-        "widget_weekly": false,       // weekly usage in the taskbar widget
+        "widget_show": "five_hour",   // taskbar widget limit: five_hour | seven_day | both
         "tray_show": "five_hour",     // tray icon number: off | five_hour | seven_day
         "widget_offset": 0,           // px the user dragged the taskbar widget
     });
@@ -200,7 +199,18 @@ pub struct Settings(pub Map<String, Value>);
 impl Settings {
     pub fn load() -> Settings {
         let mut s = defaults();
-        if let Some(Value::Object(saved)) = load_json(&path("settings.json")) {
+        if let Some(Value::Object(mut saved)) = load_json(&path("settings.json")) {
+            // Older versions had two toggles (widget_five, widget_weekly): turn them into one choice.
+            let old_five = saved.remove("widget_five").map(|v| truthy(&v));
+            let old_weekly = saved.remove("widget_weekly").map(|v| truthy(&v));
+            if !saved.contains_key("widget_show") && (old_five.is_some() || old_weekly.is_some()) {
+                let show = match (old_five.unwrap_or(true), old_weekly.unwrap_or(false)) {
+                    (true, true) => "both",
+                    (false, true) => "seven_day",
+                    _ => "five_hour",
+                };
+                saved.insert("widget_show".into(), json!(show));
+            }
             for (k, v) in saved {
                 s.insert(k, v);
             }

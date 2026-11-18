@@ -58,6 +58,8 @@ enum Action {
     Url(String),
     Toggle(&'static str),
     Set(&'static str, Value),
+    /// Dropdown: pick one value for the setting from a menu.
+    Pick(&'static str, Vec<(Value, &'static str)>),
     ResetKey(String, bool),
     Tab(&'static str),
     Login,
@@ -296,6 +298,8 @@ unsafe extern "system" fn mouse_hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESU
 enum After {
     Nothing,
     Menu { x: i32, y: i32, tray: bool },
+    /// Dropdown menu for a setting, opened below (x, y) in screen pixels.
+    Pick { key: &'static str, opts: Vec<(Value, &'static str)>, x: i32, y: i32 },
 }
 
 unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -317,6 +321,26 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
 }
 
 fn run_after(after: After) {
+    if let After::Pick { key, opts, x, y } = after {
+        let Some((root, cur)) = APP.with(|a| {
+            a.try_borrow().ok().and_then(|g| g.as_ref().map(|a| (a.root as isize, a.settings.get(key).clone())))
+        }) else {
+            return;
+        };
+        let items: Vec<Option<&str>> = opts.iter().map(|(_, t)| Some(*t)).collect();
+        let checked = opts.iter().position(|(v, _)| *v == cur).map(|i| i as u32 + 1);
+        let cmd = win::popup_menu(root as HWND, &items, x, y, win::MenuOpts { checked, below: true, ..Default::default() });
+        if let Some((v, _)) = opts.get((cmd as usize).wrapping_sub(1)) {
+            APP.with(|a| {
+                if let Ok(mut g) = a.try_borrow_mut() {
+                    if let Some(app) = g.as_mut() {
+                        app.set_setting(key, v.clone());
+                    }
+                }
+            });
+        }
+        return;
+    }
     if let After::Menu { x, y, tray } = after {
         let Some(root) = APP.with(|a| a.try_borrow().ok().and_then(|g| g.as_ref().map(|a| a.root as isize))) else { return };
         let items: Vec<Option<&str>> = if tray {
@@ -324,7 +348,8 @@ fn run_after(after: After) {
         } else {
             vec![Some("Open"), Some("Refresh now"), Some("Settings"), None, Some("Quit")]
         };
-        let cmd = win::popup_menu(root as HWND, &items, x, y, if tray { Some(1) } else { None });
+        let opts = win::MenuOpts { default: if tray { Some(1) } else { None }, ..Default::default() };
+        let cmd = win::popup_menu(root as HWND, &items, x, y, opts);
         let label = if cmd > 0 { items[cmd as usize - 1] } else { None };
         if let Some(label) = label {
             APP.with(|a| {
@@ -517,6 +542,8 @@ impl App {
             self.check_for_update();
         }
         unsafe {
+            // Hear about sign-in and unlock (WM_WTSSESSION_CHANGE) to refresh old numbers.
+            win::watch_sessions(self.root);
             SetTimer(self.root, T_TICK, 1000, None);
             SetTimer(self.root, T_TOP, 300, None);
             SetTimer(self.root, T_CLICK, 50, None);
@@ -568,6 +595,14 @@ impl App {
                         _ => {}
                     }
                     return done;
+                }
+                win::WM_WTSSESSION_CHANGE if wp == win::WTS_SESSION_UNLOCK || wp == win::WTS_SESSION_LOGON => {
+                    self.refresh_if_old();
+                    return done;
+                }
+                WM_POWERBROADCAST if wp == PBT_APMRESUMEAUTOMATIC as usize || wp == PBT_APMRESUMESUSPEND as usize => {
+                    self.refresh_if_old();
+                    return (Some(1), After::Nothing);
                 }
                 WM_WORKER => {
                     while let Ok(m) = self.rx.try_recv() {
@@ -639,8 +674,7 @@ impl App {
             match msg {
                 WM_LBUTTONDOWN => {
                     let (x, y) = lparam_xy(lp);
-                    self.popup_click(x as f32, y as f32);
-                    return done;
+                    return (Some(0), self.popup_click(x as f32, y as f32));
                 }
                 WM_MOUSEMOVE => {
                     let (x, y) = lparam_xy(lp);
@@ -704,11 +738,19 @@ impl App {
         pill(&self.fonts, self.scale, st.b("widget_square"), st.b("widget_outline"), self.taskbar_bg(), segs)
     }
 
+    /// The numbers are too old to trust: no successful update for 3 refresh periods (at least 15 min).
+    fn stale(&self) -> bool {
+        let max_age = (3 * self.settings.i("refresh_minutes")).max(15) as f64 * 60.0;
+        self.updated.is_some_and(|t| now() - t > max_age)
+    }
+
     fn update_widget(&mut self) {
         let st = &self.settings;
-        let segs: Vec<Seg> = match &self.usage {
+        let fresh = if self.stale() { None } else { self.usage.as_ref() };
+        let segs: Vec<Seg> = match fresh {
             Some(usage) => {
-                let mut keys: Vec<&str> = [("five_hour", st.b("widget_five")), ("seven_day", st.b("widget_weekly"))]
+                let show = st.s("widget_show");
+                let mut keys: Vec<&str> = [("five_hour", show != "seven_day"), ("seven_day", show != "five_hour")]
                     .into_iter()
                     .filter(|(k, on)| *on && usage.iter().any(|l| l.key == *k))
                     .map(|(k, _)| k)
@@ -722,6 +764,10 @@ impl App {
                     .map(|u| {
                         let timer = if st.b("widget_timer") { short_left(&u.resets_at) } else { String::new() };
                         let label = if both { if u.key == "five_hour" { "5h" } else { "W" } } else { "" };
+                        if u.resets_at.is_some_and(|r| r <= Utc::now()) {
+                            // reset already happened: the old number is wrong until the next update
+                            return (label.to_string(), "--%".into(), String::new(), MUTED);
+                        }
                         (label.to_string(), format!("{:.0}%", u.pct), timer, color_for(u.pct))
                     })
                     .collect()
@@ -799,7 +845,9 @@ impl App {
         let n = unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32;
         let k = n as f32 / 64.0;
         let key = self.settings.s("tray_show");
-        match self.usage.as_ref().and_then(|u| u.iter().find(|l| l.key == key)) {
+        let fresh = if self.stale() { None } else { self.usage.as_ref() };
+        let shown = fresh.and_then(|u| u.iter().find(|l| l.key == key)).filter(|l| !l.resets_at.is_some_and(|r| r <= Utc::now()));
+        match shown {
             Some(l) => {
                 let col = color_for(l.pct);
                 let mut c = Canvas::new(n, n, None);
@@ -839,19 +887,26 @@ impl App {
     /// Tray icon number and tooltip, following the "Number in the tray icon" setting.
     fn update_tray(&mut self) {
         let pm = self.tray_image();
-        let key = self.settings.s("tray_show");
         let title = match &self.usage {
             Some(usage) => {
+                // "5h 39% · resets 00:39", "Week 19% · resets Mon 14:59"
                 let lines: Vec<String> = usage
                     .iter()
                     .filter(|l| l.key == "five_hour" || l.key == "seven_day")
-                    .map(|l| format!("{}: {:.0}% used", l.label, l.pct))
+                    .map(|l| {
+                        let name = if l.key == "five_hour" { "5h" } else { "Week" };
+                        match l.resets_at {
+                            Some(r) if r <= Utc::now() => format!("{name} reset at {}", local(&r).format("%H:%M")),
+                            Some(r) => {
+                                let fmt = if local(&r).date_naive() == Local::now().date_naive() { "%H:%M" } else { "%a %H:%M" };
+                                format!("{name} {:.0}% · resets {}", l.pct, local(&r).format(fmt))
+                            }
+                            None => format!("{name} {:.0}%", l.pct),
+                        }
+                    })
                     .collect();
-                let mut t = format!("Claude usage\n{}", lines.join("\n"));
-                if let Some(l) = usage.iter().find(|l| l.key == key) {
-                    t += &format!("\n{}", fmt_reset(&l.resets_at));
-                }
-                t
+                let head = if self.stale() { "Claude usage · out of date" } else { "Claude usage" };
+                format!("{head}\n{}", lines.join("\n"))
             }
             None => "Claude usage".into(),
         };
@@ -969,16 +1024,22 @@ impl App {
         page.hits.iter().position(|h| h.r.0 <= x && x < h.r.2 && h.r.1 <= y && y < h.r.3)
     }
 
-    fn popup_click(&mut self, x: f32, y: f32) {
-        let action = self.hit_at(x, y).and_then(|i| self.page.as_ref().map(|p| p.hits[i].action.clone()));
+    fn popup_click(&mut self, x: f32, y: f32) -> After {
+        let hit = self.hit_at(x, y).and_then(|i| self.page.as_ref().map(|p| (p.hits[i].action.clone(), p.hits[i].r)));
+        let action = hit.as_ref().map(|(a, _)| a.clone());
         let was_focus = self.entry_focus;
         self.entry_focus = action == Some(Action::Entry);
         let Some(action) = action else {
             if was_focus {
                 self.render_popup();
             }
-            return;
+            return After::Nothing;
         };
+        if let (Action::Pick(key, opts), Some((_, r))) = (&action, &hit) {
+            // Open the menu right under the dropdown button.
+            let rc = win::rect_of(self.popup);
+            return After::Pick { key, opts: opts.clone(), x: rc.left + r.0 as i32, y: rc.top + r.3 as i32 };
+        }
         match action {
             Action::Refresh => self.manual_refresh(),
             Action::Settings => {
@@ -1027,7 +1088,9 @@ impl App {
                 self.entry_open = true;
                 self.render_popup();
             }
+            Action::Pick(..) => {} // handled above: the menu opens after this returns
         }
+        After::Nothing
     }
 
     fn entry_key(&mut self, ch: u32) {
@@ -1235,6 +1298,16 @@ impl App {
     fn manual_refresh_wait(&self) -> i64 {
         let left = (self.last_fetch + MIN_FETCH_GAP - now()).max(self.rate_until - now());
         if left > 0.0 { left as i64 + 1 } else { 0 }
+    }
+
+    /// Back at the PC (sign-in, unlock, wake): fetch soon if the numbers are over 5 minutes old.
+    /// A few seconds' wait gives the network time to come back after sleep.
+    fn refresh_if_old(&mut self) {
+        let old = self.updated.is_none_or(|t| now() - t > 5.0 * 60.0);
+        if old && self.next_fetch > now() + 5.0 {
+            self.next_fetch = now() + 5.0;
+        }
+        self.update_widget(); // grey out numbers that went stale while away
     }
 
     fn manual_refresh(&mut self) {

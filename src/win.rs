@@ -239,9 +239,35 @@ pub fn dark_menus() {
     }
 }
 
+pub const WM_WTSSESSION_CHANGE: u32 = 0x02B1;
+pub const WTS_SESSION_LOGON: usize = 5;
+pub const WTS_SESSION_UNLOCK: usize = 8;
+
+#[link(name = "wtsapi32", kind = "raw-dylib")]
+unsafe extern "system" {
+    fn WTSRegisterSessionNotification(hwnd: HWND, flags: u32) -> i32;
+}
+
+/// Send WM_WTSSESSION_CHANGE (sign-in, lock, unlock) for this session to `hwnd`.
+pub fn watch_sessions(hwnd: HWND) {
+    const NOTIFY_FOR_THIS_SESSION: u32 = 0;
+    unsafe { WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) };
+}
+
+/// How a popup menu looks and where it opens.
+#[derive(Default)]
+pub struct MenuOpts {
+    /// 1-based index shown bold.
+    pub default: Option<u32>,
+    /// 1-based index with a check mark.
+    pub checked: Option<u32>,
+    /// Open below (x, y), like a dropdown, instead of above it.
+    pub below: bool,
+}
+
 /// Native popup menu at (x, y); returns the chosen item's 1-based index, or 0.
-/// `items`: None is a separator. `default` makes that index bold.
-pub fn popup_menu(owner: HWND, items: &[Option<&str>], x: i32, y: i32, default: Option<u32>) -> u32 {
+/// `items`: None is a separator.
+pub fn popup_menu(owner: HWND, items: &[Option<&str>], x: i32, y: i32, o: MenuOpts) -> u32 {
     unsafe {
         let m = CreatePopupMenu();
         for (i, it) in items.iter().enumerate() {
@@ -251,15 +277,17 @@ pub fn popup_menu(owner: HWND, items: &[Option<&str>], x: i32, y: i32, default: 
                 }
                 Some(t) => {
                     let w = wide(t);
-                    AppendMenuW(m, MF_STRING, i + 1, w.as_ptr());
+                    let check = if o.checked == Some(i as u32 + 1) { MF_CHECKED } else { 0 };
+                    AppendMenuW(m, MF_STRING | check, i + 1, w.as_ptr());
                 }
             }
         }
-        if let Some(d) = default {
+        if let Some(d) = o.default {
             SetMenuDefaultItem(m, d, 0);
         }
         SetForegroundWindow(owner); // required so the menu closes when clicking elsewhere
-        let cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, x, y, 0, owner, std::ptr::null());
+        let align = if o.below { TPM_TOPALIGN } else { TPM_BOTTOMALIGN };
+        let cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON | align, x, y, 0, owner, std::ptr::null());
         PostMessageW(owner, WM_NULL, 0, 0);
         DestroyMenu(m);
         cmd.max(0) as u32

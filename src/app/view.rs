@@ -240,18 +240,25 @@ impl<'a> L<'a> {
         self.y += h + self.px(12.0);
     }
 
-    fn bar_block(&mut self, label: &str, pct: f64, reset: &Option<DateTime<Utc>>, note: &str) {
+    /// One limit: name, % used, bar and reset time. `old`: the numbers are out of date (greyed).
+    fn bar_block(&mut self, label: &str, pct: f64, reset: &Option<DateTime<Utc>>, note: &str, old: bool) {
         let r9 = self.pt(9.0, Face::Reg);
         let b9 = self.pt(9.0, Face::Bold);
         let r8 = self.pt(8.0, Face::Reg);
+        // After the reset time the number is certainly wrong until the next update.
+        let passed = reset.is_some_and(|r| r <= Utc::now());
+        let old = old || passed;
         let used = format!("{pct:.0}% used");
-        self.row_lr((label, r9, FG2), Some((&used, b9, FG)));
+        self.row_lr((label, r9, FG2), Some((&used, b9, if old { MUTED } else { FG })));
         self.y += self.px(4.0);
         let (w, h) = (self.px(280.0), self.px(8.0));
-        self.pix(self.x0 + IMG, self.y + IMG, bar_image(w as u32, h as u32, pct, color_for(pct)));
+        let col = if old { MUTED } else { color_for(pct) };
+        self.pix(self.x0 + IMG, self.y + IMG, bar_image(w as u32, h as u32, pct, col));
         self.y += h + 2.0 * IMG + self.px(3.0);
         let mut txt = fmt_reset(reset);
-        if 100.0 - pct <= 20.0 {
+        if let (true, Some(r)) = (passed, reset) {
+            txt = format!("Reset at {} · waiting for new numbers", local(r).format("%H:%M"));
+        } else if 100.0 - pct <= 20.0 {
             txt = format!("{:.0}% left · {txt}", 100.0 - pct);
         }
         self.label(&txt, r8, MUTED, (0.0, 0.0));
@@ -369,7 +376,16 @@ impl App {
         let mut sub = match self.updated {
             Some(t) => {
                 let mins = ((now() - t) / 60.0) as i64;
-                if mins < 1 { "Updated just now".to_string() } else { format!("Updated {mins} min ago") }
+                let ago = if mins < 1 {
+                    "just now".to_string()
+                } else if mins < 120 {
+                    format!("{mins} min ago")
+                } else if mins < 48 * 60 {
+                    format!("{} h ago", mins / 60)
+                } else {
+                    format!("{} days ago", mins / 1440)
+                };
+                if self.stale() { format!("Out of date · updated {ago}") } else { format!("Updated {ago}") }
             }
             None => "Loading…".into(),
         };
@@ -383,7 +399,7 @@ impl App {
         }
         if let Some(usage) = &self.usage {
             for u in usage {
-                l.bar_block(&u.label, u.pct, &u.resets_at, &u.note);
+                l.bar_block(&u.label, u.pct, &u.resets_at, &u.note, self.stale());
             }
             if self.settings.b("show_credits") {
                 self.credits_section(&mut l);
@@ -394,7 +410,24 @@ impl App {
         }
         let r8 = l.pt(8.0, Face::Reg);
         let top = l.px(8.0);
-        if let Some(e) = &self.error {
+        let expired = self.settings.has_session_key() && usage::ai_status() == usage::AiStatus::Expired;
+        if self.error.is_some() && expired && (cfg!(feature = "login") || self.login.is_some()) {
+            // Expired claude.ai login: offer the button right here instead of pointing to the Account tab.
+            l.y += top;
+            let desc = "Log in again to see resets and credits";
+            let r9 = l.pt(9.0, Face::Reg);
+            if self.login.is_some() {
+                let t = "Logging in…";
+                let (x, y) = l.row("claude.ai session expired", desc, (l.lw(r9, t), l.lh(r9)));
+                l.text(x, y, t, r9, MUTED, None);
+            } else {
+                let pm = chip_image(&self.fonts, self.scale, "Log in", true);
+                let size = (pm.width() as f32 + 2.0 * IMG, pm.height() as f32 + 2.0 * IMG);
+                let (x, y) = l.row("claude.ai session expired", desc, size);
+                l.pix(x + IMG, y + IMG, pm);
+                l.hit(x, y, x + size.0, y + size.1, Action::Login, None);
+            }
+        } else if let Some(e) = &self.error {
             let w = l.px(280.0);
             l.wrapped(e, r8, AMBER, w, (top, 0.0));
         } else if !self.source.is_empty() {
@@ -585,8 +618,10 @@ impl App {
                 l.section("Taskbar");
                 l.toggle("show_taskbar_widget", s.b("show_taskbar_widget"), "Usage next to the clock", "");
                 if s.b("show_taskbar_widget") {
-                    l.labeled("", multi(&[("widget_five", "5-hour"), ("widget_weekly", "Weekly"), ("widget_timer", "Time left")]));
-                    l.labeled("", multi(&[("widget_square", "Square"), ("widget_outline", "Outline")]));
+                    let opts = vec![(json!("five_hour"), "5 hours"), (json!("seven_day"), "Week"), (json!("both"), "Both")];
+                    let cur = opts.iter().find(|(v, _)| s.get("widget_show") == v).map_or("5 hours", |(_, t)| *t);
+                    l.labeled("Show", vec![(chip(&format!("{cur}  ▾"), false), Action::Pick("widget_show", opts))]);
+                    l.labeled("", multi(&[("widget_timer", "Time left"), ("widget_square", "Square"), ("widget_outline", "Outline")]));
                 }
                 let c = choices("tray_show", &[(json!("off"), "Off"), (json!("five_hour"), "5-hour"), (json!("seven_day"), "Weekly")]);
                 l.labeled("Number in the tray icon", c);
